@@ -143,6 +143,22 @@ QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {{
     font-family: {MONO};
 }}
 QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{ border-color: {TEAL}; }}
+QAbstractSpinBox {{ padding-right: 22px; }}
+QAbstractSpinBox::up-button, QAbstractSpinBox::down-button {{
+    subcontrol-origin: border; width: 18px; background: {PANEL_2};
+    border-left: 1px solid {BORDER_2};
+}}
+QAbstractSpinBox::up-button {{ subcontrol-position: top right; border-top-right-radius: 3px; }}
+QAbstractSpinBox::down-button {{ subcontrol-position: bottom right; border-bottom-right-radius: 3px; }}
+QAbstractSpinBox::up-button:hover, QAbstractSpinBox::down-button:hover {{ background: {BORDER}; }}
+QAbstractSpinBox::up-arrow {{
+    image: none; width: 0; height: 0;
+    border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 5px solid {MUTED};
+}}
+QAbstractSpinBox::down-arrow {{
+    image: none; width: 0; height: 0;
+    border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid {MUTED};
+}}
 QComboBox QAbstractItemView {{ background: {PANEL_2}; border: 1px solid {BORDER_2}; selection-background-color: #24414a; outline: 0; }}
 QCheckBox {{ spacing: 8px; }}
 QCheckBox::indicator {{ width: 14px; height: 14px; border: 1px solid {BORDER_2}; border-radius: 2px; background: {BG}; }}

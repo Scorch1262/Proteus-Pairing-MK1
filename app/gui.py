@@ -196,6 +196,16 @@ class SettingsDialog(QDialog):
         hint.setObjectName("muted")
         hint.setWordWrap(True)
         f1.addRow(hint)
+        self.ident = QCheckBox("Gekürzte Namen per kurzer Verbindung prüfen")
+        self.ident.setChecked(s.identify_by_connect)
+        self.ident.setToolTip("Proteus-Module senden in der Suche oft nur einen gekürzten Namen (z. B. „Albre“).\n"
+                              "Geprüft werden Geräte mit Proteus-UUID oder Würth-Adresse 00:18:DA.")
+        f1.addRow(self.ident)
+        self.prefix = QLineEdit(s.name_prefix)
+        self.prefix.setPlaceholderText("optional, z. B. Albre")
+        self.prefix.setToolTip("Zusätzlich alle Geräte prüfen, deren (gekürzter) Name so beginnt –\n"
+                               "nötig z. B. unter macOS, wenn das Modul keine Proteus-UUID sendet.")
+        f1.addRow("Namensanfang prüfen:", self.prefix)
         root.addWidget(g1)
 
         g2 = QGroupBox("BEFEHLE")
@@ -222,7 +232,6 @@ class SettingsDialog(QDialog):
         self.retr = QSpinBox()
         self.retr.setRange(1, 10)
         self.retr.setValue(s.retries)
-        self.retr.setButtonSymbols(QSpinBox.NoButtons)
         f3.addRow("Startzeit nach Erkennen:", self.boot)
         f3.addRow("Max. Suchdauer:", self.scan)
         f3.addRow("Antwort-Timeout:", self.resp)
@@ -260,13 +269,13 @@ class SettingsDialog(QDialog):
         w.setRange(lo, hi)
         w.setDecimals(1)
         w.setSuffix(suffix)
-        w.setButtonSymbols(QDoubleSpinBox.NoButtons)
         w.setValue(val)
         return w
 
     def _defaults(self):
         d = Settings()
         self.m_host.setText(d.marker_host); self.m_ptt.setText(d.marker_ptt)
+        self.ident.setChecked(d.identify_by_connect); self.prefix.setText(d.name_prefix)
         self.c_mac.setText(d.cmd_host_mac); self.c_ptt.setText(d.cmd_ptt_prefix)
         self.le.setCurrentText(d.line_ending); self.hdr.setChecked(d.proteus_header)
         self.boot.setValue(d.boot_wait_s); self.scan.setValue(d.scan_timeout_s)
@@ -279,6 +288,8 @@ class SettingsDialog(QDialog):
         s = Settings(
             marker_host=self.m_host.text().strip() or "Host",
             marker_ptt=self.m_ptt.text().strip() or "PTT",
+            identify_by_connect=self.ident.isChecked(),
+            name_prefix=self.prefix.text().strip(),
             cmd_host_mac=self.c_mac.text() or "BT-MAC?",
             cmd_ptt_prefix=self.c_ptt.text() or "Host:",
             line_ending=self.le.currentText(),

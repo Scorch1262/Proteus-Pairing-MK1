@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 APP_NAME = "Proteus-Pairing-MK1"
-APP_VERSION = "1.0.2"
+APP_VERSION = "1.1.0"
 
 
 def data_dir() -> Path:
@@ -45,6 +45,10 @@ class Settings:
     # Erkennungsmarken im Gerätenamen (Groß-/Kleinschreibung egal)
     marker_host: str = "Host"
     marker_ptt: str = "PTT"
+    # Module senden in der Werbung oft nur einen gekürzten Namen (z. B. "Albre").
+    # Dann wird kurz verbunden und der volle Name gelesen.
+    identify_by_connect: bool = True
+    name_prefix: str = ""                # optional: zusätzlich Geräte mit diesem Namensanfang prüfen
     # Befehle
     cmd_host_mac: str = "BT-MAC?"
     cmd_ptt_prefix: str = "Host:"

@@ -98,7 +98,7 @@ Das Kit liegt im Repo im Ordner `offline_build_kit`. Es gibt zwei Wege:
 4. Ergebnis liegt in **`fertige_exe`**:
    ```
    fertige_exe/
-   └── Proteus-Pairing-MK1-v1.0.2-windows.exe
+   └── Proteus-Pairing-MK1-v1.1.0-windows.exe
    ```
 
 **Neue Projektversion später bauen:** Weg A – neuen Projektstand in den

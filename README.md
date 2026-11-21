@@ -1,6 +1,6 @@
 # Proteus-Pairing-MK1
 
-**Version 1.0.2** · Desktop-Programm für Windows und macOS (keine Web-App)
+**Version 1.1.0** · Desktop-Programm für Windows und macOS (keine Web-App)
 
 Arbeitet den Paarungsablauf zwischen einem **Host-Modul** und einem **PTT-Modul** mit
 Würth-Elektronik-**Proteus-II**-Bluetooth-Modulen automatisch ab – über die Bluetooth-Schnittstelle
@@ -14,6 +14,12 @@ des PCs/Macs. Das Programm ersetzt die Bedienung der Proteus-App auf dem Smartph
 - **Universell nutzbar:** Geräte werden nur über die Erkennungsmarken **„Host“** und **„PTT“** im
   Gerätenamen erkannt (Groß-/Kleinschreibung egal). Enthält ein Name beide Marken
   (z. B. `…-PTT_MK10_Host`), gilt er als Host.
+- **Gekürzte Namen werden erkannt:** Proteus-Module senden in der Suche oft nur einen
+  gekürzten Namen (z. B. „Albre“) – der volle Name ist erst nach dem Verbinden sichtbar.
+  Das Programm verbindet sich deshalb kurz mit jedem in Frage kommenden Modul (Proteus-UUID
+  in der Werbung oder Würth-Adresse `00:18:DA:…`), liest den vollen Namen und prüft ihn auf
+  „Host“/„PTT“. Passt er, wird die Verbindung direkt weiterverwendet. Erkannte Namen werden
+  gespeichert (`namen_cache.json`), beim nächsten Mal entfällt die Prüfung.
 - **Automatische Auswahl ohne Nutzerhandlung:** Suche, Verbindung, Auswahl des Proteus-II-Profils
   (Service `6E400001-C352-11E5-953D-0002A5D5C51B`), Kopplung, Befehle senden, Antwort auswerten.
   Sind mehrere passende Module in Reichweite, wird das mit dem stärksten Signal genommen.
@@ -33,14 +39,14 @@ des PCs/Macs. Das Programm ersetzt die Bedienung der Proteus-App auf dem Smartph
 | Programm | Anleitung | Art |
 |---|---|---|
 | Haupt-Modul einschalten | 1 | **Nutzer** (geht automatisch weiter, sobald das Modul gefunden wurde) |
-| „Host“-Modul suchen | 3 | automatisch |
+| „Host“-Modul suchen & erkennen | 3 | automatisch (gekürzte Namen per kurzer Verbindung prüfen) |
 | Startzeit abwarten (ca. 5 s) | 2 | automatisch |
 | Verbinden · Proteus-II-Profil | 4 | automatisch |
 | Kopplung bestätigen | 5 | automatisch (ggf. Systemdialog bestätigen) |
 | „BT-MAC?“ senden | 6 | automatisch |
 | MAC-Adresse auslesen & merken | 7–8 | automatisch |
 | PTT-Taste halten + PTT-Modul einschalten | 9 | **Nutzer** (geht automatisch weiter, sobald das Modul gefunden wurde) |
-| „PTT“-Modul suchen | 11 | automatisch |
+| „PTT“-Modul suchen & erkennen | 11 | automatisch |
 | Startzeit abwarten (ca. 5 s) | 10 | automatisch |
 | Verbinden · Proteus-II-Profil | 12 | automatisch |
 | „Host:&lt;MAC&gt;“ senden | 13 | automatisch |
@@ -56,9 +62,9 @@ Per GitHub Actions entstehen (Reiter **Actions** → letzter Lauf, bzw. bei eine
 
 | Datei | Inhalt |
 |---|---|
-| `Proteus-Pairing-MK1-v1.0.2-windows.exe` | **nur die exe** – herunterladen und starten |
-| `Proteus-Pairing-MK1-v1.0.2.zip` | Gesamtpaket: Windows-exe, macOS-App, README, Paarungsanleitung |
-| `Proteus-Pairing-MK1-Offline-Build-Kit-v1.0.2.zip` | Offline-Build-Kit (siehe unten) |
+| `Proteus-Pairing-MK1-v1.1.0-windows.exe` | **nur die exe** – herunterladen und starten |
+| `Proteus-Pairing-MK1-v1.1.0.zip` | Gesamtpaket: Windows-exe, macOS-App, README, Paarungsanleitung |
+| `Proteus-Pairing-MK1-Offline-Build-Kit-v1.1.0.zip` | Offline-Build-Kit (siehe unten) |
 
 > Hinweis: Unter **Actions** packt GitHub jedes Artefakt beim Herunterladen immer in eine
 > ZIP-Hülle (`…-windows-exe.zip`, darin nur die exe). Im **Release** liegt die exe direkt.
@@ -69,7 +75,7 @@ Per GitHub Actions entstehen (Reiter **Actions** → letzter Lauf, bzw. bei eine
   entpacken, App per Rechtsklick → „Öffnen“ starten (nicht signiert). Bluetooth-Zugriff beim
   ersten Start erlauben. Falls macOS die App blockiert: `xattr -cr Proteus-Pairing-MK1.app`.
 
-Einstellungen, Verlauf (`verlauf.csv`) und gespeicherte Protokolle liegen unter
+Einstellungen, Verlauf (`verlauf.csv`), Namensspeicher (`namen_cache.json`) und gespeicherte Protokolle liegen unter
 `%APPDATA%\Proteus-Pairing-MK1` (Windows) bzw. `~/Library/Application Support/Proteus-Pairing-MK1` (macOS).
 
 ## Einstellungen
@@ -77,6 +83,8 @@ Einstellungen, Verlauf (`verlauf.csv`) und gespeicherte Protokolle liegen unter
 | Einstellung | Standard | Bedeutung |
 |---|---|---|
 | Marke Host-Modul / PTT-Modul | `Host` / `PTT` | Teil des Gerätenamens zur Erkennung |
+| Gekürzte Namen per Verbindung prüfen | an | Kandidaten kurz verbinden und vollen Namen lesen |
+| Namensanfang prüfen | leer | zusätzlich alle Geräte mit diesem (gekürzten) Namensanfang prüfen, z. B. `Albre` – nötig unter macOS, falls das Modul keine Proteus-UUID sendet (macOS zeigt keine MAC-Adressen) |
 | MAC-Abfrage am Host | `BT-MAC?` | Befehl an das Host-Modul |
 | Präfix am PTT-Modul | `Host:` | wird mit der MAC zu `Host:00:18:DA:…` |
 | Zeilenende | kein | wie in der Proteus-App; bei Bedarf CR / LF / CR+LF |

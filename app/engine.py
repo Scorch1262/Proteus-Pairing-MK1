@@ -14,12 +14,14 @@ Die Klasse ``PairingEngine`` kennt keine Oberfläche. Sie meldet alles über ein
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import sys
 from dataclasses import dataclass
 
 from bleak import BleakClient, BleakScanner
 
+from . import config as cfg
 from .config import Settings, append_history, now_str
 
 # Würth Elektronik Proteus-II – SPP-ähnliches BLE-Profil
@@ -27,6 +29,8 @@ PROTEUS_SERVICE = "6e400001-c352-11e5-953d-0002a5d5c51b"
 PROTEUS_TX_CHAR = "6e400002-c352-11e5-953d-0002a5d5c51b"  # PC -> Modul (Write)
 PROTEUS_RX_CHAR = "6e400003-c352-11e5-953d-0002a5d5c51b"  # Modul -> PC (Notify)
 PROTEUS_DATA_HEADER = b"\x01"
+GAP_DEVICE_NAME = "00002a00-0000-1000-8000-00805f9b34fb"
+WURTH_OUI = "00:18:DA"  # Herstellerkennung Würth Elektronik eiSos
 
 MAC_RE = re.compile(r"([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})")
 MAC_LINE_RE = re.compile(r"MAC\s*:?\s*([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})", re.IGNORECASE)
@@ -52,14 +56,14 @@ class Step:
 def build_steps(s: Settings) -> list[Step]:
     return [
         Step("h_power", "A", "Haupt-Modul einschalten", True, "1"),
-        Step("h_scan", "A", f"„{s.marker_host}“-Modul suchen", False, "3"),
+        Step("h_scan", "A", f"„{s.marker_host}“-Modul suchen & erkennen", False, "3"),
         Step("h_wait", "A", f"Startzeit abwarten (ca. {s.boot_wait_s:g} s)", False, "2"),
         Step("h_connect", "A", "Verbinden · Proteus-II-Profil", False, "4"),
         Step("h_pair", "A", "Kopplung bestätigen", False, "5"),
         Step("h_cmd", "A", f"„{s.cmd_host_mac}“ senden", False, "6"),
         Step("h_mac", "A", "MAC-Adresse auslesen & merken", False, "7–8"),
         Step("p_power", "B", "PTT-Taste halten + PTT-Modul einschalten", True, "9"),
-        Step("p_scan", "B", f"„{s.marker_ptt}“-Modul suchen", False, "11"),
+        Step("p_scan", "B", f"„{s.marker_ptt}“-Modul suchen & erkennen", False, "11"),
         Step("p_wait", "B", f"Startzeit abwarten (ca. {s.boot_wait_s:g} s)", False, "10"),
         Step("p_connect", "B", "Verbinden · Proteus-II-Profil", False, "12"),
         Step("p_send", "B", f"„{s.cmd_ptt_prefix}<MAC>“ senden", False, "13"),
@@ -105,6 +109,7 @@ class PairingEngine:
         self.host_info: dict | None = None
         self.ptt_info: dict | None = None
         self.mac: str | None = None
+        self.name_cache: dict[str, str] = self._load_name_cache()  # Adresse -> voller Name
 
     # ------------------------------------------------------------------ UI-Hilfen
     def respond(self, choice: str) -> None:
@@ -216,21 +221,12 @@ class PairingEngine:
         self._show("user", "NUTZERAKTION ERFORDERLICH",
                    "Haupt-Modul einschalten",
                    hint=f"Das Programm sucht automatisch nach einem Proteus-II-Modul mit "
-                        f"„{s.marker_host}“ im Namen und fährt fort, sobald es gefunden wurde.",
+                        f"„{s.marker_host}“ im Namen und fährt fort, sobald es gefunden wurde. "
+                        f"Gekürzte Namen (z. B. „Albre…“) werden per kurzer Verbindung geprüft.",
                    step="h_power")
-        dev, adv, name = await self._scan("host", exclude=set())
-        self._step("h_power", "done")
-        self._step("h_scan", "done", name)
-        self.host_info = dict(name=name, address=dev.address, rssi=adv.rssi)
-        self.ui.on_device("host", self.host_info)
-
-        await self._countdown("h_wait", "Haupt-Modul startet …")
-
-        self._step("h_connect", "active", "verbinde …")
-        self._show("auto", "AUTOMATISCH", f"Verbinde mit „{name}“ …",
-                   hint="Proteus-II-Profil wird automatisch ausgewählt.", step="h_connect")
-        client = await self._connect(dev, name)
-        self._step("h_connect", "done", "Proteus-II-Profil gefunden")
+        info, client = await self._acquire("host", set(), "h_power", "h_scan", "h_wait", "h_connect",
+                                           "Haupt-Modul startet …")
+        self.host_info = info
 
         await self._pair_and_open(client, "h_pair", s.pair_host)
 
@@ -271,19 +267,9 @@ class PairingEngine:
                         f"gefunden wurde.",
                    step="p_power")
         exclude = {self.host_info["address"]} if self.host_info else set()
-        dev, adv, name = await self._scan("ptt", exclude=exclude)
-        self._step("p_power", "done")
-        self._step("p_scan", "done", name)
-        self.ptt_info = dict(name=name, address=dev.address, rssi=adv.rssi)
-        self.ui.on_device("ptt", self.ptt_info)
-
-        await self._countdown("p_wait", "PTT-Modul startet …")
-
-        self._step("p_connect", "active", "verbinde …")
-        self._show("auto", "AUTOMATISCH", f"Verbinde mit „{name}“ …",
-                   hint="Proteus-II-Profil wird automatisch ausgewählt.", step="p_connect")
-        client = await self._connect(dev, name)
-        self._step("p_connect", "done", "Proteus-II-Profil gefunden")
+        info, client = await self._acquire("ptt", exclude, "p_power", "p_scan", "p_wait", "p_connect",
+                                           "PTT-Modul startet …")
+        self.ptt_info = info
         await self._pair_and_open(client, None, s.pair_ptt)
 
         cmd = f"{s.cmd_ptt_prefix}{self.mac}"
@@ -297,6 +283,27 @@ class PairingEngine:
             self._log("info", f"Antwort PTT-Modul: {_visible(self._rx_buf.strip())}")
         self._step("p_send", "done", "gesendet")
         await self._finish_client(client)
+
+    async def _acquire(self, role, exclude, sid_power, sid_scan, sid_wait, sid_connect, wait_text):
+        """Modul finden, Startzeit abwarten, verbinden – gemeinsam für Host und PTT."""
+        dev, adv, name, client = await self._find(role, exclude, sid_scan)
+        self._step(sid_power, "done")
+        self._step(sid_scan, "done", name)
+        info = dict(name=name, address=dev.address, rssi=adv.rssi)
+        self.ui.on_device(role, info)
+        if client is None:
+            await self._countdown(sid_wait, wait_text)
+            self._step(sid_connect, "active", "verbinde …")
+            self._show("auto", "AUTOMATISCH", f"Verbinde mit „{name}“ …",
+                       hint="Proteus-II-Profil wird automatisch ausgewählt.", step=sid_connect)
+            client = await self._connect(dev, name)
+        else:
+            # Bei der Namensprüfung wurde die Startzeit bereits abgewartet und verbunden
+            self._step(sid_wait, "done", "während der Erkennung abgewartet")
+            self._step(sid_connect, "active", "bestehende Verbindung")
+            await self._verify_proteus(client, name)
+        self._step(sid_connect, "done", "Proteus-II-Profil gefunden")
+        return info, client
 
     # ------------------------------------------------------------------ Phase C
     async def _phase_restart(self) -> None:
@@ -330,61 +337,235 @@ class PairingEngine:
                 self._step(sid, "done")
 
     # ------------------------------------------------------------------ Bausteine
-    async def _scan(self, role: str, exclude: set[str]):
+    def _is_candidate(self, e: dict) -> bool:
+        """Könnte ein Proteus-II-Modul sein, dessen voller Name erst nach dem Verbinden lesbar ist."""
+        if e["uuid"] or e["oui"]:
+            return True
+        prefix = self.s.name_prefix.strip().lower()
+        return bool(prefix) and e["name"].lower().startswith(prefix)
+
+    def _known_name(self, e: dict) -> str:
+        return self.name_cache.get(e["dev"].address) or e["name"]
+
+    async def _find(self, role: str, exclude: set[str], sid_scan: str):
+        """Sucht ein Modul der Rolle host/ptt.
+
+        1. Voller Name schon in der Werbung (oder aus dem Namensspeicher) -> direkt.
+        2. Sonst: Proteus-Kandidaten (UUID / Würth-Adresse 00:18:DA / Namensanfang) kurz
+           verbinden und den vollständigen Gerätenamen lesen.
+        Rückgabe: (BLEDevice, AdvertisementData, voller Name, verbundener Client oder None)
+        """
         s = self.s
-        found: dict[str, tuple] = {}
-        hit = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        seen: dict[str, dict] = {}
+        failed: dict[str, float] = {}       # Adresse -> Zeitpunkt des Fehlversuchs
+        mismatch: set[str] = set()          # geprüft, falsche Rolle
+        marker = s.marker_host if role == "host" else s.marker_ptt
 
         def detected(device, adv):
-            name = adv.local_name or device.name or ""
-            if device.address in exclude or role_of(name, s) != role:
+            addr = device.address
+            if addr in exclude:
                 return
-            first = device.address not in found
-            found[device.address] = (device, adv, name)
-            if first:
-                has_uuid = PROTEUS_SERVICE in [u.lower() for u in (adv.service_uuids or [])]
-                self._log("info", f"Gefunden: {name}  [{device.address}]  {adv.rssi} dBm"
-                                  + ("  · Proteus-UUID" if has_uuid else ""))
-            hit.set()
+            name = adv.local_name or device.name or ""
+            now = loop.time()
+            e = seen.get(addr)
+            if e is None:
+                e = seen[addr] = dict(
+                    dev=device, adv=adv, name=name, first=now,
+                    uuid=PROTEUS_SERVICE in [u.lower() for u in (adv.service_uuids or [])],
+                    oui=addr.upper().startswith(WURTH_OUI))
+                if self._is_candidate(e) or role_of(self._known_name(e), s):
+                    tags = [t for t, on in (("Proteus-UUID", e["uuid"]), ("Würth-Adresse", e["oui"])) if on]
+                    known = self.name_cache.get(addr)
+                    self._log("info", f"Gesehen: „{name or '?'}“  [{addr}]  {adv.rssi} dBm"
+                                      + (f"  · {', '.join(tags)}" if tags else "")
+                                      + (f"  · bekannt als „{known}“" if known and known != name else ""))
+            else:
+                e["dev"], e["adv"] = device, adv
+                if len(name) > len(e["name"]):
+                    e["name"] = name
+                if not e["uuid"] and PROTEUS_SERVICE in [u.lower() for u in (adv.service_uuids or [])]:
+                    e["uuid"] = True
 
         scanner = BleakScanner(detection_callback=detected)
-        try:
-            await scanner.start()
-        except Exception as exc:
-            raise ProcessError(f"Bluetooth-Suche konnte nicht gestartet werden ({exc}). "
-                               f"Ist Bluetooth am Rechner eingeschaltet?")
-        self._log("info", f"Suche nach Modul mit „{s.marker_host if role == 'host' else s.marker_ptt}“ …")
-        try:
-            loop = asyncio.get_running_loop()
-            t0 = loop.time()
-            while not hit.is_set():
-                el = loop.time() - t0
-                if el >= s.scan_timeout_s:
-                    raise ProcessError(
-                        f"Kein Modul mit „{s.marker_host if role == 'host' else s.marker_ptt}“ im Namen "
-                        f"innerhalb von {s.scan_timeout_s:g} s gefunden.")
-                self.ui.on_progress(0, 0)
-                try:
-                    await asyncio.wait_for(hit.wait(), 0.5)
-                except asyncio.TimeoutError:
-                    pass
-            await asyncio.sleep(1.5)  # weitere Kandidaten kurz sammeln
-        finally:
+
+        async def start():
+            try:
+                await scanner.start()
+            except Exception as exc:
+                raise ProcessError(f"Bluetooth-Suche konnte nicht gestartet werden ({exc}). "
+                                   f"Ist Bluetooth am Rechner eingeschaltet?")
+
+        async def stop():
             try:
                 await scanner.stop()
             except Exception:
                 pass
 
-        def key(item):
-            dev, adv, _ = item
-            has_uuid = PROTEUS_SERVICE in [u.lower() for u in (adv.service_uuids or [])]
-            return (has_uuid, adv.rssi if adv.rssi is not None else -999)
+        await start()
+        self._log("info", f"Suche nach Modul mit „{marker}“ …")
+        t0 = loop.time()
+        try:
+            while True:
+                if loop.time() - t0 >= s.scan_timeout_s:
+                    raise ProcessError(self._not_found_text(marker, seen))
+                self.ui.on_progress(0, 0)
+                await asyncio.sleep(0.5)
 
-        candidates = sorted(found.values(), key=key, reverse=True)
-        if len(candidates) > 1:
-            self._log("warn", f"{len(candidates)} passende Module gefunden – nehme das stärkste Signal: "
-                              f"{candidates[0][2]} ({candidates[0][1].rssi} dBm)")
-        return candidates[0]
+                # 1) Voller Name bekannt (Werbung oder Namensspeicher)
+                direct = [e for e in seen.values() if role_of(self._known_name(e), s) == role]
+                if direct:
+                    await asyncio.sleep(1.0)  # weitere Kandidaten kurz sammeln
+                    await stop()
+                    direct = [e for e in seen.values() if role_of(self._known_name(e), s) == role]
+                    direct.sort(key=lambda e: (e["uuid"], e["adv"].rssi or -999), reverse=True)
+                    if len(direct) > 1:
+                        self._log("warn", f"{len(direct)} passende Module gefunden – nehme das stärkste "
+                                          f"Signal: {self._known_name(direct[0])} ({direct[0]['adv'].rssi} dBm)")
+                    e = direct[0]
+                    name = self._known_name(e)
+                    self._log("info", f"Gefunden: {name}  [{e['dev'].address}]  {e['adv'].rssi} dBm")
+                    return e["dev"], e["adv"], name, None
+
+                # 2) Gekürzte Namen: Kandidaten per Verbindung prüfen
+                if not s.identify_by_connect:
+                    continue
+                now = loop.time()
+                todo = [e for addr, e in seen.items()
+                        if self._is_candidate(e)
+                        and addr not in mismatch
+                        and addr not in self.name_cache
+                        and now - e["first"] >= s.boot_wait_s
+                        and now - failed.get(addr, -1e9) >= 10.0]
+                if not todo:
+                    continue
+                todo.sort(key=lambda e: e["adv"].rssi or -999, reverse=True)
+                e = todo[0]
+                addr = e["dev"].address
+                await stop()  # Verbinden während der Suche ist unter Windows unzuverlässig
+                self._step(sid_scan, "active", f"prüfe „{e['name'] or addr}“ …")
+                self._show("auto", "AUTOMATISCH", f"Prüfe Gerät „{e['name'] or addr}“ …",
+                           hint="Der vollständige Name ist erst nach dem Verbinden lesbar. "
+                                "Das Programm verbindet sich kurz und liest ihn aus.", step=sid_scan)
+                client, full = await self._identify(e)
+                if full is None:
+                    failed[addr] = loop.time()
+                elif role_of(full, s) == role and client is not None:
+                    return e["dev"], e["adv"], full, client
+                else:
+                    mismatch.add(addr)
+                self._step(sid_scan, "active", "Suche läuft …")
+                self._show("user", "NUTZERAKTION ERFORDERLICH",
+                           "Haupt-Modul einschalten" if role == "host" else
+                           "PTT-Knopf am PTT-Modul gedrückt halten und dabei das PTT-Modul einschalten",
+                           hint=f"Suche weiter nach einem Modul mit „{marker}“ im Namen …",
+                           step="h_power" if role == "host" else "p_power")
+                await start()
+        finally:
+            await stop()
+
+    def _not_found_text(self, marker: str, seen: dict) -> str:
+        lines = [f"Kein Modul mit „{marker}“ im Namen innerhalb von {self.s.scan_timeout_s:g} s gefunden."]
+        named = sorted((e for e in seen.values() if e["name"] or e["uuid"] or e["oui"]),
+                       key=lambda e: e["adv"].rssi or -999, reverse=True)[:6]
+        if named:
+            lines.append("Gesehene Geräte: " + ", ".join(
+                f"„{self._known_name(e) or '?'}“ ({e['adv'].rssi} dBm)" for e in named))
+            lines.append("Tipp: Zeigt das Modul nur einen gekürzten Namen (z. B. „Albre“), diesen in den "
+                         "Einstellungen unter „Namensanfang prüfen“ eintragen.")
+        return "\n".join(lines)
+
+    async def _identify(self, e: dict):
+        """Kurz verbinden und den vollständigen Gerätenamen lesen.
+
+        Rückgabe (client | None, voller Name | None). Passt der Name nicht zur gesuchten
+        Rolle, wird wieder getrennt; der Name landet im Namensspeicher.
+        """
+        addr = e["dev"].address
+        holder = {"name": e["name"] or addr}
+
+        def on_disconnect(_client):
+            if not self._expect_disconnect:
+                self._log("warn", f"Verbindung zu „{holder['name']}“ wurde getrennt.")
+
+        self._log("info", f"Prüfe „{e['name'] or '?'}“ [{addr}] – verbinde, um den vollen Namen zu lesen …")
+        self._expect_disconnect = False
+        client = BleakClient(e["dev"], disconnected_callback=on_disconnect, timeout=15)
+        try:
+            await client.connect()
+        except Exception as exc:
+            self._log("warn", f"Prüfverbindung fehlgeschlagen ({exc}) – versuche später erneut.")
+            return None, None
+        self._clients.append(client)
+        full = await self._read_full_name(client, e["name"])
+        holder["name"] = full
+        self.name_cache[addr] = full
+        self._save_name_cache()
+        role = role_of(full, self.s)
+        self._log("info", f"Voller Name: „{full}“" + (f"  → {role.upper()}" if role else "  → nicht gesucht"))
+        if role:
+            return client, full
+        self._expect_disconnect = True
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
+        if client in self._clients:
+            self._clients.remove(client)
+        return None, full
+
+    async def _read_full_name(self, client: BleakClient, adv_name: str) -> str:
+        names: list[str] = []
+
+        def add(n):
+            n = (n or "").strip("\x00 \r\n")
+            if n and n not in names and not re.fullmatch(r"[0-9A-Fa-f:\-]{12,}", n):
+                names.append(n)
+
+        # a) GATT-Characteristic „Device Name“ 0x2A00 (unter Windows/macOS meist ausgeblendet)
+        try:
+            ch = client.services.get_characteristic(GAP_DEVICE_NAME)
+            if ch is not None:
+                add(bytes(await client.read_gatt_char(ch)).decode("utf-8", "replace"))
+        except Exception:
+            pass
+        # b) Name des Betriebssystems nach der Verbindung (Windows: BluetoothLEDevice.Name,
+        #    macOS: CBPeripheral.name) – wird u. U. erst kurz nach dem Verbinden aktualisiert
+        for _ in range(15):
+            try:
+                add(client.name)
+            except Exception:
+                pass
+            if any(role_of(n, self.s) for n in names):
+                break
+            await asyncio.sleep(0.2)
+        # c) Windows: Gerät frisch beim System abfragen
+        if sys.platform == "win32" and not any(role_of(n, self.s) for n in names):
+            try:
+                from winrt.windows.devices.bluetooth import BluetoothLEDevice
+                d = await BluetoothLEDevice.from_bluetooth_address_async(
+                    int(client.address.replace(":", "").replace("-", ""), 16))
+                if d is not None:
+                    add(d.name)
+            except Exception:
+                pass
+        for n in names:
+            if role_of(n, self.s):
+                return n
+        return max(names + [adv_name or ""], key=len) or client.address
+
+    def _load_name_cache(self) -> dict:
+        try:
+            return dict(json.loads((cfg.data_dir() / "namen_cache.json").read_text(encoding="utf-8")))
+        except Exception:
+            return {}
+
+    def _save_name_cache(self):
+        try:
+            (cfg.data_dir() / "namen_cache.json").write_text(
+                json.dumps(self.name_cache, indent=1, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
 
     async def _countdown(self, sid: str, text: str):
         secs = max(0.0, self.s.boot_wait_s)
@@ -419,7 +600,10 @@ class PairingEngine:
                 await asyncio.sleep(1.0)
         else:
             raise ProcessError(f"Verbindung zu „{name}“ nicht möglich ({last}).")
+        await self._verify_proteus(client, name)
+        return client
 
+    async def _verify_proteus(self, client: BleakClient, name: str):
         svc = client.services.get_service(PROTEUS_SERVICE)
         tx = svc.get_characteristic(PROTEUS_TX_CHAR) if svc else None
         rx = svc.get_characteristic(PROTEUS_RX_CHAR) if svc else None
@@ -435,7 +619,6 @@ class PairingEngine:
             await asyncio.sleep(0.1)
         self._log("info", f"Verbunden. Proteus-II-Profil ausgewählt, "
                           f"max. {tx.max_write_without_response_size} Byte pro Paket.")
-        return client
 
     async def _pair_and_open(self, client: BleakClient, sid: str | None, do_pair: bool):
         if sid:
