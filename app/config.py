@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 APP_NAME = "Proteus-Pairing-MK1"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 
 
 def data_dir() -> Path:

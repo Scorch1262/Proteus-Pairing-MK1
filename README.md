@@ -1,6 +1,6 @@
 # Proteus-Pairing-MK1
 
-**Version 1.0.0** · Desktop-Programm für Windows und macOS (keine Web-App)
+**Version 1.0.1** · Desktop-Programm für Windows und macOS (keine Web-App)
 
 Arbeitet den Paarungsablauf zwischen einem **Host-Modul** und einem **PTT-Modul** mit
 Würth-Elektronik-**Proteus-II**-Bluetooth-Modulen automatisch ab – über die Bluetooth-Schnittstelle
@@ -49,10 +49,10 @@ des PCs/Macs. Das Programm ersetzt die Bedienung der Proteus-App auf dem Smartph
 ## Download und Start
 
 Das fertige Paket entsteht per GitHub Actions (Reiter **Actions** → letzter Lauf → Artefakt
-`Proteus-Pairing-MK1-v1.0.0`, bzw. bei einem Tag `v*` als Release).
+`Proteus-Pairing-MK1-v1.0.1`, bzw. bei einem Tag `v*` als Release).
 
 ```
-Proteus-Pairing-MK1-v1.0.0/
+Proteus-Pairing-MK1-v1.0.1/
 ├── Windows/Proteus-Pairing-MK1.exe        ← einzelne exe, keine Installation nötig
 ├── macOS/Proteus-Pairing-MK1-macOS.zip    ← entpacken → Proteus-Pairing-MK1.app
 ├── Paarungsanleitung.txt
@@ -84,10 +84,24 @@ Einstellungen, Verlauf (`verlauf.csv`) und gespeicherte Protokolle liegen unter
 | Kopplung danach entfernen | aus | nur Windows; hält die Bluetooth-Geräteliste sauber |
 | Neustart-Schritte einzeln bestätigen | an | sonst eine Sammelbestätigung für Schritt 14–17 |
 
+## Offline bauen (ohne Internet am Windows-PC)
+
+Im Ordner [`offline_build_kit`](offline_build_kit/ANLEITUNG.md) liegt ein
+Offline-Build-Kit: **der Mac lädt die Pakete, der Windows-10-PC baut die exe**
+– mit derselben Spec-Datei wie GitHub Actions.
+
+1. Mac: `offline_build_kit/1_mac_pakete_herunterladen.sh` (lädt ca. 85 MB Pakete für Windows / Python 3.11)
+2. Projektordner auf den Win10-PC kopieren → `2_win10_pakete_installieren.bat`
+3. `3_win10_exe_bauen.bat` → `offline_build_kit/fertige_exe/Proteus-Pairing-MK1-v<Version>-windows.exe`
+
+Details, beide Wege (Projektordner oder Kit + ZIP) und Fehlerbehebung:
+[`offline_build_kit/ANLEITUNG.md`](offline_build_kit/ANLEITUNG.md).
+Das Kit wird außerdem bei jedem Release als eigene ZIP mitgeliefert.
+
 ## Selbst bauen
 
 ```bash
-pip install -r requirements.txt pyinstaller
+pip install -r requirements.txt pyinstaller==6.22.3
 python main.py                                        # direkt starten
 pyinstaller --noconfirm --clean Proteus-Pairing-MK1.spec   # exe bzw. .app in dist/
 ```
@@ -103,8 +117,9 @@ app/style.py                 Farbschema im Dashboard-Design
 assets/                      Programmsymbol (png/ico/icns)
 tools/make_icon.py           erzeugt die Symbole neu
 docs/                        Screenshot, Paarungsanleitung
-.github/workflows/build.yml  Build Windows-exe + macOS-App + Gesamt-ZIP
+.github/workflows/build.yml  Build Windows-exe + macOS-App + Gesamt-ZIP + Offline-Kit-ZIP
+offline_build_kit/           Offline-Build-Kit (Mac lädt, Win10 baut)
 ```
 
-Technik: Python 3.12, PySide6 (Qt 6), bleak 3.1 (WinRT unter Windows, CoreBluetooth unter macOS),
+Technik: Python 3.12 (Offline-Kit: 3.11), PySide6-Essentials 6.12 (Qt 6), bleak 3.1 (WinRT unter Windows, CoreBluetooth unter macOS),
 PyInstaller.

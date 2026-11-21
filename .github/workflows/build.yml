@@ -1,0 +1,105 @@
+name: Build Windows-exe und macOS-App
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  APP_NAME: Proteus-Pairing-MK1
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  windows:
+    name: Windows (.exe)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Abhängigkeiten installieren
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller==6.22.3
+      - name: exe bauen
+        run: pyinstaller --noconfirm --clean Proteus-Pairing-MK1.spec
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/${{ env.APP_NAME }}.exe
+          if-no-files-found: error
+
+  macos:
+    name: macOS (.app, Apple Silicon)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Abhängigkeiten installieren
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller==6.22.3
+      - name: App bauen
+        run: pyinstaller --noconfirm --clean Proteus-Pairing-MK1.spec
+      - name: App ad-hoc signieren und zippen
+        run: |
+          codesign --force --deep --sign - "dist/${APP_NAME}.app"
+          ditto -c -k --sequesterRsrc --keepParent "dist/${APP_NAME}.app" "${APP_NAME}-macOS.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: ${{ env.APP_NAME }}-macOS.zip
+          if-no-files-found: error
+
+  package:
+    name: Gesamtpaket (ZIP)
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Version lesen und ZIP erstellen
+        id: pkg
+        run: |
+          VERSION=$(grep -oP 'APP_VERSION = "\K[^"]+' app/config.py)
+          DIR="${APP_NAME}-v${VERSION}"
+          mkdir -p "$DIR/Windows" "$DIR/macOS"
+          cp artifacts/windows/${APP_NAME}.exe "$DIR/Windows/"
+          cp artifacts/macos/${APP_NAME}-macOS.zip "$DIR/macOS/"
+          cp README.md "$DIR/"
+          cp docs/Paarungsanleitung.txt "$DIR/"
+          zip -r "${DIR}.zip" "$DIR"
+          KIT="${APP_NAME}-Offline-Build-Kit-v${VERSION}"
+          mkdir -p "$KIT"
+          cp offline_build_kit/* "$KIT/"
+          chmod +x "$KIT/1_mac_pakete_herunterladen.sh"
+          zip -r "${KIT}.zip" "$KIT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "zip=${DIR}.zip" >> "$GITHUB_OUTPUT"
+          echo "kit=${KIT}.zip" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-v${{ steps.pkg.outputs.version }}
+          path: ${{ steps.pkg.outputs.zip }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-Offline-Build-Kit-v${{ steps.pkg.outputs.version }}
+          path: ${{ steps.pkg.outputs.kit }}
+      - name: Release veröffentlichen (nur bei Tag v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.pkg.outputs.zip }}
+            ${{ steps.pkg.outputs.kit }}
+          generate_release_notes: true
