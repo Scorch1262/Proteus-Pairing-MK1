@@ -292,40 +292,108 @@ class PairingEngine:
         cmd = f"{s.cmd_ptt_prefix}{self.mac}"
         confirm = s.ptt_confirm.strip()
         self._expect_disconnect = True  # Modul darf sich danach selbst trennen
+        self._log("info", "Schreib-Characteristic: " + ", ".join(self._tx_char.properties)
+                          + f" · max. {self._tx_char.max_write_without_response_size} Byte pro Paket")
         await self._settle_before_send()
-        ok = False
-        for attempt in range(1, max(1, s.retries) + 1):
-            self._step("p_send", "active", f"Versuch {attempt}")
+        variants = self._ptt_variants() if (confirm and s.try_variants) else [self._base_variant()]
+        ok_variant = None
+        for i, v in enumerate(variants, 1):
+            label = v["label"]
+            self._step("p_send", "active", f"Variante {i}/{len(variants)}" if len(variants) > 1 else "")
             self._show("auto", "AUTOMATISCH", f"Sende „{cmd}“ …",
-                       hint=(f"Warte auf Bestätigung „{confirm}“ vom PTT-Modul …" if confirm else "")
-                            + (f"  (Versuch {attempt} von {s.retries})" if attempt > 1 else ""),
+                       hint=(f"Warte auf Bestätigung „{confirm}“ vom PTT-Modul. " if confirm else "")
+                            + (f"Variante {i}/{len(variants)}: {label}" if len(variants) > 1 else ""),
                        step="p_send")
-            self._rx_buf = ""
-            if not client.is_connected:
-                raise ProcessError("Das PTT-Modul hat die Verbindung getrennt, bevor die Host-MAC "
-                                   "bestätigt wurde.")
-            await self._send(client, cmd)
+            try:
+                client = await self._reopen(client)
+                if v["pair"]:
+                    self._log("info", "Variante: Kopplung mit dem PTT-Modul herstellen …")
+                    before = client
+                    client = await self._do_pair(client, "p_send")
+                    if client is not before:   # nach Kopplung neu verbunden -> Datenkanal neu öffnen
+                        await asyncio.wait_for(client.start_notify(self._rx_char, self._on_rx), 60)
+                        await self._settle_before_send()
+                    client = await self._reopen(client)
+                self._rx_buf = ""
+                if i > 1:
+                    self._log("info", f"Versuche Variante {i}/{len(variants)}: {label}")
+                await self._send(client, cmd, v)
+            except ProcessError as exc:
+                self._log("warn", f"Variante „{label}“ nicht möglich: {exc}")
+                continue
+            except Exception as exc:
+                self._log("warn", f"Variante „{label}“ fehlgeschlagen: {exc.__class__.__name__}: {exc}")
+                continue
             if not confirm:
                 await asyncio.sleep(max(0.0, s.ptt_reply_wait_s))
-                ok = True
+                ok_variant = v
                 break
             if await self._wait_for_text(confirm, max(s.response_timeout_s, s.ptt_reply_wait_s)):
                 await asyncio.sleep(0.3)   # Rest der Meldung abwarten
-                ok = True
+                ok_variant = v
                 break
             got = _visible(self._rx_buf.strip())
             self._log("warn", f"Keine Bestätigung „{confirm}“ erhalten"
                               + (f" (Antwort: „{got}“)." if got else " (keine Antwort)."))
         if self._rx_buf.strip():
             self._log("info", f"Antwort PTT-Modul: {_visible(self._rx_buf.strip())}")
-        if not ok:
+        if ok_variant is None:
             raise ProcessError(
-                f"Das PTT-Modul hat das Speichern der Host-MAC nicht bestätigt (erwartet: „{confirm}“). "
-                f"Meist wurde das PTT-Modul nicht mit gedrückter PTT-Taste eingeschaltet. "
+                f"Das PTT-Modul hat das Speichern der Host-MAC nicht bestätigt (erwartet: „{confirm}“"
+                + (f", {len(variants)} Varianten probiert" if len(variants) > 1 else "") + "). "
+                f"Prüfen: wurde das PTT-Modul mit gedrückter PTT-Taste eingeschaltet? "
                 f"Beim Wiederholen: PTT-Modul aus, PTT-Taste halten, einschalten.")
+        if ok_variant["label"] != "aktuelle Einstellungen":
+            self._adopt_variant(ok_variant)
         self._log("ok", "PTT-Modul hat die Host-MAC gespeichert." if confirm else "Host-MAC gesendet.")
         self._step("p_send", "done", "bestätigt" if confirm else "gesendet")
         await self._finish_client(client)
+
+    def _ptt_variants(self) -> list[dict]:
+        """Varianten, wie Handy-Apps senden – nacheinander probieren, bis das Modul bestätigt."""
+        base = self._base_variant()
+        out = [base]
+
+        def add(label, **chg):
+            v = dict(base, label=label, **chg)
+            key = tuple((k, v[k]) for k in ("response", "chunk", "header", "ending", "pair"))
+            if all(tuple((k, o[k]) for k in ("response", "chunk", "header", "ending", "pair")) != key
+                   for o in out):
+                out.append(v)
+
+        add("ohne Antwort schreiben", response="ohne Antwort")
+        add("20-Byte-Pakete wie Handy (Standard-MTU)", chunk=20)
+        add("20-Byte-Pakete, ohne Antwort", chunk=20, response="ohne Antwort")
+        if base["ending"] != "\r\n":
+            add("Zeilenende CR+LF", ending="\r\n")
+        else:
+            add("ohne Zeilenende", ending="")
+        if winpair.AVAILABLE and not self.s.pair_ptt:
+            add("mit Kopplung (PTT-Modul)", pair=True)
+        add("ohne 0x01-Header", header=False)
+        return out
+
+    def _adopt_variant(self, v: dict):
+        s = self.s
+        s.write_mode = v["response"]
+        s.packet_size = int(v["chunk"] or 0)
+        s.proteus_header = bool(v["header"])
+        s.line_ending = next((k for k, val in cfg.LINE_ENDINGS.items() if val == v["ending"]), s.line_ending)
+        if v["pair"]:
+            s.pair_ptt = True
+        try:
+            s.save()
+        except Exception:
+            pass
+        self._log("ok", f"Funktioniert mit Variante „{v['label']}“ – in die Einstellungen übernommen.")
+
+    async def _reopen(self, client: BleakClient) -> BleakClient:
+        """Verbindung sicherstellen; nach Neuverbindung Datenkanal wieder öffnen."""
+        new = await self._ensure_connected(client)
+        if new is not client:
+            await asyncio.wait_for(new.start_notify(self._rx_char, self._on_rx), 60)
+            await self._settle_before_send()
+        return new
 
     async def _settle_before_send(self):
         """Nach dem Öffnen des Datenkanals kurz warten – die Modul-Firmware braucht einen Moment."""
@@ -494,7 +562,8 @@ class PairingEngine:
                 if e["stale"] and scanning["on"] and now - e["last"] >= OFF_GAP:
                     e["stale"] = False
                     e["first"] = now   # Startzeit ab Wiedereinschalten
-                    self._log("ok", f"„{self._known_name(e) or addr}“ wurde neu eingeschaltet.")
+                    if role_of(self._known_name(e), s) == role or self._is_candidate(e):
+                        self._log("ok", f"„{self._known_name(e) or addr}“ wurde neu eingeschaltet.")
                 e["last"] = now
                 e["dev"], e["adv"] = device, adv
                 if len(name) > len(e["name"]):
@@ -917,21 +986,40 @@ class PairingEngine:
         if self._rx_event:
             self._rx_event.set()
 
-    async def _send(self, client: BleakClient, text: str):
+    def _base_variant(self) -> dict:
+        s = self.s
+        return dict(label="aktuelle Einstellungen", response=s.write_mode, chunk=s.packet_size,
+                    header=s.proteus_header, ending=s.line_ending_chars, pair=False)
+
+    async def _send(self, client: BleakClient, text: str, v: dict | None = None):
         if not client.is_connected:
             raise ProcessError("Verbindung zum Modul ist abgerissen.")
-        s = self.s
-        data = (text + s.line_ending_chars).encode("utf-8")
-        hdr = PROTEUS_DATA_HEADER if s.proteus_header else b""
+        v = v or self._base_variant()
+        data = (text + v["ending"]).encode("utf-8")
+        hdr = PROTEUS_DATA_HEADER if v["header"] else b""
         tx = self._tx_char
-        with_response = "write" in tx.properties
-        room = max(1, tx.max_write_without_response_size - len(hdr))
+        props = tx.properties
+        if v["response"] == "mit Antwort" and "write" in props:
+            with_response = True
+        elif v["response"] == "ohne Antwort" and "write-without-response" in props:
+            with_response = False
+        else:
+            with_response = "write" in props
+        limit = tx.max_write_without_response_size
+        if v["chunk"]:
+            limit = min(limit, int(v["chunk"]))
+        room = max(1, limit - len(hdr))
         chunks = [data[i:i + room] for i in range(0, len(data), room)] or [b""]
+        info = ["mit Antwort" if with_response else "ohne Antwort"]
         if len(chunks) > 1:
-            self._log("warn", f"Nachricht ist länger als ein Paket – wird in {len(chunks)} Teilen gesendet.")
-        self._log("tx", _visible(text + s.line_ending_chars))
+            info.append(f"{len(chunks)} Pakete à max. {room + len(hdr)} Byte")
+        if not v["header"]:
+            info.append("ohne 0x01-Header")
+        self._log("tx", _visible(text + v["ending"]) + "   [" + ", ".join(info) + "]")
         for chunk in chunks:
             await client.write_gatt_char(tx, hdr + chunk, response=with_response)
+            if len(chunks) > 1:
+                await asyncio.sleep(0.05)
 
     async def _wait_for_mac(self, timeout: float) -> str | None:
         loop = asyncio.get_running_loop()

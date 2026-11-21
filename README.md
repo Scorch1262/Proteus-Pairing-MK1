@@ -1,6 +1,6 @@
 # Proteus-Pairing-MK1
 
-**Version 1.3.0** · Desktop-Programm für Windows und macOS (keine Web-App)
+**Version 1.4.0** · Desktop-Programm für Windows und macOS (keine Web-App)
 
 Arbeitet den Paarungsablauf zwischen einem **Host-Modul** und einem **PTT-Modul** mit
 Würth-Elektronik-**Proteus-II**-Bluetooth-Modulen automatisch ab – über die Bluetooth-Schnittstelle
@@ -30,6 +30,10 @@ des PCs/Macs. Das Programm ersetzt die Bedienung der Proteus-App auf dem Smartph
   schon an, fordert das Programm zum Aus-/Einschalten auf und erkennt das automatisch.
   „Fertig“ gibt es erst, wenn das Modul mit „Neue Host MAC gespeichert“ antwortet –
   sonst Wiederholung bzw. klare Fehlermeldung.
+- **Sendevarianten automatisch:** Bestätigt das PTT-Modul nicht, probiert das Programm
+  nacheinander, wie Handy-Apps senden: ohne Antwort schreiben, 20-Byte-Pakete
+  (Standard-MTU), CR+LF, Kopplung mit dem PTT-Modul, ohne 0x01-Header. Die Variante,
+  mit der das Modul „gespeichert“ meldet, wird in die Einstellungen übernommen.
 - **Automatische Auswahl ohne Nutzerhandlung:** Suche, Verbindung, Auswahl des Proteus-II-Profils
   (Service `6E400001-C352-11E5-953D-0002A5D5C51B`), Kopplung, Befehle senden, Antwort auswerten.
   Sind mehrere passende Module in Reichweite, wird das mit dem stärksten Signal genommen.
@@ -72,9 +76,9 @@ Per GitHub Actions entstehen (Reiter **Actions** → letzter Lauf, bzw. bei eine
 
 | Datei | Inhalt |
 |---|---|
-| `Proteus-Pairing-MK1-v1.3.0-windows.exe` | **nur die exe** – herunterladen und starten |
-| `Proteus-Pairing-MK1-v1.3.0.zip` | Gesamtpaket: Windows-exe, macOS-App, README, Paarungsanleitung |
-| `Proteus-Pairing-MK1-Offline-Build-Kit-v1.3.0.zip` | Offline-Build-Kit (siehe unten) |
+| `Proteus-Pairing-MK1-v1.4.0-windows.exe` | **nur die exe** – herunterladen und starten |
+| `Proteus-Pairing-MK1-v1.4.0.zip` | Gesamtpaket: Windows-exe, macOS-App, README, Paarungsanleitung |
+| `Proteus-Pairing-MK1-Offline-Build-Kit-v1.4.0.zip` | Offline-Build-Kit (siehe unten) |
 
 > Hinweis: Unter **Actions** packt GitHub jedes Artefakt beim Herunterladen immer in eine
 > ZIP-Hülle (`…-windows-exe.zip`, darin nur die exe). Im **Release** liegt die exe direkt.
@@ -99,6 +103,9 @@ Einstellungen, Verlauf (`verlauf.csv`), Namensspeicher (`namen_cache.json`) und 
 | Präfix am PTT-Modul | `Host:` | wird mit der MAC zu `Host:00:18:DA:…` |
 | Bestätigung PTT-Modul | `gespeichert` | muss in der Antwort vorkommen („Neue Host MAC gespeichert“); leer = nicht prüfen |
 | Zeilenende | kein | wie in der Proteus-App; bei Bedarf CR / LF / CR+LF |
+| Schreibart | auto | `auto` / `mit Antwort` / `ohne Antwort` (BLE-Write mit oder ohne Bestätigung) |
+| Paketgröße | automatisch | max. Byte pro BLE-Paket inkl. Header; `20` = wie Handy mit Standard-MTU |
+| Sendevarianten probieren | an | PTT: ohne Bestätigung automatisch andere Varianten versuchen |
 | Proteus-II-Datenheader 0x01 | an | Proteus-II-Profil: jedes Datenpaket beginnt mit 0x01 |
 | Startzeit nach Erkennen | 5 s | „ca. 5 s warten“ |
 | Max. Suchdauer | 120 s | danach Fehlermeldung mit „Wiederholen“ |

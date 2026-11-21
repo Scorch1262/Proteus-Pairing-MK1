@@ -223,6 +223,20 @@ class SettingsDialog(QDialog):
         self.le = QComboBox()
         self.le.addItems(list(LINE_ENDINGS))
         self.le.setCurrentText(s.line_ending)
+        self.wmode = QComboBox()
+        self.wmode.addItems(["auto", "mit Antwort", "ohne Antwort"])
+        self.wmode.setCurrentText(s.write_mode)
+        self.wmode.setToolTip("BLE-Schreibart. „auto“ = mit Antwort, wenn das Modul es unterstützt.")
+        self.psize = QSpinBox()
+        self.psize.setRange(0, 244)
+        self.psize.setSpecialValueText("automatisch")
+        self.psize.setSuffix(" Byte")
+        self.psize.setValue(s.packet_size)
+        self.psize.setToolTip("Max. Größe eines BLE-Pakets inkl. Header. 20 = wie Handy mit Standard-MTU.")
+        self.variants = QCheckBox("PTT: ohne Bestätigung automatisch andere Sendevarianten probieren")
+        self.variants.setChecked(s.try_variants)
+        self.variants.setToolTip("Probiert u. a. „ohne Antwort“, 20-Byte-Pakete, CR+LF, Kopplung.\n"
+                                 "Die funktionierende Variante wird in die Einstellungen übernommen.")
         self.hdr = QCheckBox("Proteus-II-Datenheader 0x01 verwenden")
         self.hdr.setChecked(s.proteus_header)
         f2.addRow("MAC-Abfrage am Host:", self.c_mac)
@@ -233,7 +247,10 @@ class SettingsDialog(QDialog):
                                "(z. B. „Neue Host MAC gespeichert“). Ohne diese Antwort gilt die Paarung als fehlgeschlagen.")
         f2.addRow("Bestätigung PTT-Modul:", self.c_conf)
         f2.addRow("Zeilenende:", self.le)
+        f2.addRow("Schreibart:", self.wmode)
+        f2.addRow("Paketgröße:", self.psize)
         f2.addRow(self.hdr)
+        f2.addRow(self.variants)
         root.addWidget(g2)
 
         g3 = QGroupBox("ZEITEN")
@@ -325,6 +342,8 @@ class SettingsDialog(QDialog):
         self.fresh.setChecked(d.repair_fresh); self.passkey.setText(d.passkey)
         self.c_conf.setText(d.ptt_confirm); self.sdelay.setValue(d.send_delay_s)
         self.fresh_ptt.setChecked(d.ptt_require_fresh)
+        self.wmode.setCurrentText(d.write_mode); self.psize.setValue(d.packet_size)
+        self.variants.setChecked(d.try_variants)
 
     def result_settings(self) -> Settings:
         s = Settings(
@@ -350,6 +369,9 @@ class SettingsDialog(QDialog):
             ptt_confirm=self.c_conf.text().strip(),
             send_delay_s=self.sdelay.value(),
             ptt_require_fresh=self.fresh_ptt.isChecked(),
+            write_mode=self.wmode.currentText(),
+            packet_size=self.psize.value(),
+            try_variants=self.variants.isChecked(),
         )
         return s
 

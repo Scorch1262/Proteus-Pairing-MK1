@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 APP_NAME = "Proteus-Pairing-MK1"
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.4.0"
 
 
 def data_dir() -> Path:
@@ -55,6 +55,9 @@ class Settings:
     ptt_confirm: str = "gespeichert"     # Antwort des PTT-Moduls ("Neue Host MAC gespeichert"); leer = nicht prüfen
     line_ending: str = "Kein Zeilenende"
     proteus_header: bool = True          # 0x01-Datenheader des Proteus-II-Profils
+    write_mode: str = "auto"             # auto | mit Antwort | ohne Antwort
+    packet_size: int = 0                 # max. Byte pro BLE-Paket (0 = automatisch/MTU)
+    try_variants: bool = True            # PTT: bei fehlender Bestätigung Sendevarianten probieren
     # Zeiten
     boot_wait_s: float = 5.0             # "ca. 5 s warten" nach dem Erkennen
     scan_timeout_s: float = 120.0
