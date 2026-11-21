@@ -1,0 +1,21 @@
+Paaring Prozess
+
+  1. Haupt-Modul einschalten
+  2. ca. 5s warten
+  3. Proteus App Starten
+  4. Verbindung mit "Albrecht_Bluetooth-PTT_MK10_Host" 
+    > Proteus-II auswählen
+  5. Kopplung Bestätigen
+  6. "BT-MAC?" eingeben > Senden
+  7. Ausgabe: "Bluetooth MAC: 00:18:DA:xx:xx:xx
+  8. Ausgegebene MAC Adresse aufschreiben
+  9. PTT Knopf am PTT-Modul beim einschalten des PTT-Modul gedückt halten
+ 10. ca. 5s warten
+ 11. Proteus App Starten
+ 12. Verbindung mit "Albrecht_Bluetooth-PTT_MK10_PTT" 
+    > Proteus-II auswählen
+ 13. "Host:00:18:DA:xx:xx:xx" eingeben > Senden
+ 14. PTT-Modul auschalten
+ 15. Haupt-Modul auschalten
+ 16. Haupt-Modul einschalten
+ 17. PTT-Modul einschalten
