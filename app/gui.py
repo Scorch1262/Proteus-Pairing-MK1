@@ -247,9 +247,23 @@ class SettingsDialog(QDialog):
         self.p_ptt.setChecked(s.pair_ptt)
         self.unpair = QCheckBox("Kopplung am Rechner danach wieder entfernen (Windows)")
         self.unpair.setChecked(s.unpair_after)
+        self.fresh = QCheckBox("Vorhandene Windows-Kopplung vorher entfernen und neu koppeln")
+        self.fresh.setChecked(s.repair_fresh)
+        self.fresh.setToolTip("Empfohlen: Wurde das Modul zwischendurch z. B. mit dem Handy gekoppelt,\n"
+                              "kennt es die alte Kopplung des PCs nicht mehr (Insufficient Authentication).")
+        pk_row = QHBoxLayout()
+        pk_lbl = QLabel("Passkey (falls verlangt):")
+        self.passkey = QLineEdit(s.passkey)
+        self.passkey.setMaximumWidth(140)
+        pk_row.addWidget(pk_lbl)
+        pk_row.addWidget(self.passkey)
+        pk_row.addStretch(1)
         self.confirm = QCheckBox("Neustart-Schritte 14–17 einzeln bestätigen")
         self.confirm.setChecked(s.confirm_restart_steps)
-        for w in (self.p_host, self.p_ptt, self.unpair, self.confirm):
+        for w in (self.p_host, self.p_ptt, self.fresh):
+            v4.addWidget(w)
+        v4.addLayout(pk_row)
+        for w in (self.unpair, self.confirm):
             v4.addWidget(w)
         root.addWidget(g4)
 
@@ -283,6 +297,7 @@ class SettingsDialog(QDialog):
         self.retr.setValue(d.retries); self.p_host.setChecked(d.pair_host)
         self.p_ptt.setChecked(d.pair_ptt); self.unpair.setChecked(d.unpair_after)
         self.confirm.setChecked(d.confirm_restart_steps)
+        self.fresh.setChecked(d.repair_fresh); self.passkey.setText(d.passkey)
 
     def result_settings(self) -> Settings:
         s = Settings(
@@ -303,6 +318,8 @@ class SettingsDialog(QDialog):
             pair_ptt=self.p_ptt.isChecked(),
             unpair_after=self.unpair.isChecked(),
             confirm_restart_steps=self.confirm.isChecked(),
+            repair_fresh=self.fresh.isChecked(),
+            passkey=self.passkey.text().strip() or "123123",
         )
         return s
 

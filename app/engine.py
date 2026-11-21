@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from bleak import BleakClient, BleakScanner
 
 from . import config as cfg
+from . import winpair
 from .config import Settings, append_history, now_str
 
 # Würth Elektronik Proteus-II – SPP-ähnliches BLE-Profil
@@ -34,6 +35,11 @@ WURTH_OUI = "00:18:DA"  # Herstellerkennung Würth Elektronik eiSos
 
 MAC_RE = re.compile(r"([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})")
 MAC_LINE_RE = re.compile(r"MAC\s*:?\s*([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})", re.IGNORECASE)
+
+
+def _is_auth_error(exc) -> bool:
+    msg = str(exc).lower()
+    return any(k in msg for k in ("authentication", "authorization", "encryption", "insufficient"))
 
 
 class ProcessError(Exception):
@@ -110,6 +116,8 @@ class PairingEngine:
         self.ptt_info: dict | None = None
         self.mac: str | None = None
         self.name_cache: dict[str, str] = self._load_name_cache()  # Adresse -> voller Name
+        self._auth_failed: set[str] = set()   # Adressen mit abgelehnter Authentifizierung
+        self._cur_name: str = ""
 
     # ------------------------------------------------------------------ UI-Hilfen
     def respond(self, choice: str) -> None:
@@ -225,7 +233,7 @@ class PairingEngine:
                         f"Gekürzte Namen (z. B. „Albre…“) werden per kurzer Verbindung geprüft.",
                    step="h_power")
         info, client = await self._acquire("host", set(), "h_power", "h_scan", "h_wait", "h_connect",
-                                           "Haupt-Modul startet …")
+                                           "Haupt-Modul startet …", s.pair_host)
         self.host_info = info
 
         await self._pair_and_open(client, "h_pair", s.pair_host)
@@ -268,7 +276,7 @@ class PairingEngine:
                    step="p_power")
         exclude = {self.host_info["address"]} if self.host_info else set()
         info, client = await self._acquire("ptt", exclude, "p_power", "p_scan", "p_wait", "p_connect",
-                                           "PTT-Modul startet …")
+                                           "PTT-Modul startet …", s.pair_ptt)
         self.ptt_info = info
         await self._pair_and_open(client, None, s.pair_ptt)
 
@@ -284,23 +292,56 @@ class PairingEngine:
         self._step("p_send", "done", "gesendet")
         await self._finish_client(client)
 
-    async def _acquire(self, role, exclude, sid_power, sid_scan, sid_wait, sid_connect, wait_text):
+    async def _acquire(self, role, exclude, sid_power, sid_scan, sid_wait, sid_connect, wait_text, do_pair):
         """Modul finden, Startzeit abwarten, verbinden – gemeinsam für Host und PTT."""
         dev, adv, name, client = await self._find(role, exclude, sid_scan)
+        self._cur_name = name
         self._step(sid_power, "done")
         self._step(sid_scan, "done", name)
         info = dict(name=name, address=dev.address, rssi=adv.rssi)
         self.ui.on_device(role, info)
+        waited = client is not None   # bei der Namensprüfung wurde die Startzeit schon abgewartet
+
+        # Veraltete Windows-Kopplung entfernen (wie beim Handy wird danach neu gekoppelt)
+        if winpair.AVAILABLE and self.s.repair_fresh and (do_pair or dev.address in self._auth_failed):
+            try:
+                paired = await winpair.is_paired(dev.address)
+            except Exception as exc:
+                paired = False
+                self._log("warn", f"Kopplungsstatus nicht lesbar ({exc}).")
+            if paired:
+                self._log("warn", "Windows hat für dieses Modul noch eine Kopplung gespeichert – sie wird "
+                                  "entfernt und gleich neu hergestellt.")
+                if client is not None:
+                    self._expect_disconnect = True
+                    try:
+                        await client.disconnect()
+                    except Exception:
+                        pass
+                    if client in self._clients:
+                        self._clients.remove(client)
+                    client = None
+                try:
+                    status = await winpair.unpair(dev.address)
+                    self._log("info", f"Alte Kopplung entfernt ({status}).")
+                except Exception as exc:
+                    self._log("warn", f"Alte Kopplung konnte nicht entfernt werden ({exc}).")
+                await asyncio.sleep(1.5)
+                self._auth_failed.discard(dev.address)
+
         if client is None:
-            await self._countdown(sid_wait, wait_text)
+            if waited:
+                self._step(sid_wait, "done", "während der Erkennung abgewartet")
+            else:
+                await self._countdown(sid_wait, wait_text)
             self._step(sid_connect, "active", "verbinde …")
             self._show("auto", "AUTOMATISCH", f"Verbinde mit „{name}“ …",
                        hint="Proteus-II-Profil wird automatisch ausgewählt.", step=sid_connect)
             client = await self._connect(dev, name)
         else:
-            # Bei der Namensprüfung wurde die Startzeit bereits abgewartet und verbunden
             self._step(sid_wait, "done", "während der Erkennung abgewartet")
             self._step(sid_connect, "active", "bestehende Verbindung")
+            await self._ensure_connected(client)
             await self._verify_proteus(client, name)
         self._step(sid_connect, "done", "Proteus-II-Profil gefunden")
         return info, client
@@ -624,31 +665,124 @@ class PairingEngine:
         if sid:
             self._step(sid, "active")
         if do_pair:
-            if sys.platform == "darwin":
-                self._show("user", "KOPPLUNG BESTÄTIGEN",
-                           "Falls macOS einen Kopplungsdialog anzeigt: bitte „Verbinden“ bzw. "
-                           "„Koppeln“ bestätigen.",
-                           hint="Der Ablauf läuft danach automatisch weiter.", step=sid or "")
-            else:
-                self._show("user", "KOPPLUNG BESTÄTIGEN",
-                           "Kopplung wird angefordert. Falls Windows eine Meldung zum Koppeln "
-                           "anzeigt: bitte bestätigen.",
-                           hint="Der Ablauf läuft danach automatisch weiter.", step=sid or "")
-                try:
-                    await asyncio.wait_for(client.pair(), 60)
-                    self._log("ok", "Kopplung bestätigt.")
-                except NotImplementedError:
-                    pass
-                except Exception as exc:
-                    self._log("warn", f"Kopplung nicht möglich oder nicht nötig ({exc}) – fahre fort.")
+            await self._do_pair(client, sid)
         self._rx_event = asyncio.Event()
         try:
+            await self._ensure_connected(client)
             await asyncio.wait_for(client.start_notify(self._rx_char, self._on_rx), 60)
+        except ProcessError:
+            raise
         except Exception as exc:
-            raise ProcessError(f"Datenkanal konnte nicht geöffnet werden ({exc}). "
-                               f"Wurde die Kopplung abgelehnt?")
+            if not _is_auth_error(exc):
+                raise ProcessError(f"Datenkanal konnte nicht geöffnet werden ({exc}).")
+            self._auth_failed.add(client.address)
+            if not winpair.AVAILABLE:
+                raise ProcessError(self._auth_text(exc))
+            # Einmal automatisch: alte Kopplung entfernen, neu koppeln, erneut öffnen
+            self._log("warn", "Das Modul verlangt eine (neue) Kopplung – wird automatisch hergestellt …")
+            await self._fresh_pair(client, sid)
+            try:
+                await self._ensure_connected(client)
+                await asyncio.wait_for(client.start_notify(self._rx_char, self._on_rx), 60)
+            except Exception as exc2:
+                raise ProcessError(self._auth_text(exc2))
+            self._auth_failed.discard(client.address)
+            do_pair = True
         if sid:
             self._step(sid, "done", "gekoppelt" if do_pair else "")
+
+    async def _do_pair(self, client: BleakClient, sid: str | None):
+        name = self._cur_name or client.address
+        if sys.platform == "darwin":
+            # macOS koppelt selbst beim ersten geschützten Zugriff und zeigt ggf. einen Dialog
+            self._show("user", "KOPPLUNG BESTÄTIGEN",
+                       "Falls macOS einen Kopplungsdialog anzeigt: bitte „Verbinden“ bzw. "
+                       "„Koppeln“ bestätigen.",
+                       hint="Der Ablauf läuft danach automatisch weiter.", step=sid or "")
+            return
+        if not winpair.AVAILABLE:
+            try:
+                await asyncio.wait_for(client.pair(), 60)
+            except Exception as exc:
+                self._log("warn", f"Kopplung nicht möglich oder nicht nötig ({exc}) – fahre fort.")
+            return
+
+        self._show("auto", "KOPPLUNG", f"Kopplung mit „{name}“ wird hergestellt …",
+                   hint=f"Wird automatisch bestätigt. Fragt das Modul nach einem Passkey, wird "
+                        f"„{self.s.passkey}“ eingegeben (änderbar in den Einstellungen).",
+                   step=sid or "")
+        await self._ensure_connected(client)
+        try:
+            status, kinds = await asyncio.wait_for(
+                winpair.pair(client.address, self.s.passkey, self._log), 60)
+        except asyncio.TimeoutError:
+            raise ProcessError("Kopplung: keine Antwort vom Modul (Zeitüberschreitung nach 60 s).")
+        except Exception as exc:
+            raise ProcessError(f"Kopplung fehlgeschlagen ({exc.__class__.__name__}: {exc}).")
+        if kinds:
+            self._log("info", "Angefragte Kopplungsart: " + ", ".join(kinds))
+        if status == "PAIRED":
+            self._log("ok", "Kopplung hergestellt.")
+        elif status == "ALREADY_PAIRED":
+            self._log("info", "Windows meldet: bereits gekoppelt.")
+        else:
+            self._auth_failed.add(client.address)
+            hints = {
+                "AUTHENTICATION_FAILURE": " Passkey falsch? In den Einstellungen prüfen.",
+                "AUTHENTICATION_TIMEOUT": " Das Modul hat nicht rechtzeitig geantwortet.",
+                "CONNECTION_REJECTED": " Das Modul hat die Verbindung abgelehnt.",
+                "REJECTED_BY_HANDLER": " Kopplungsart wird nicht unterstützt.",
+                "PAIRING_CANCELED": " Kopplung wurde abgebrochen.",
+            }
+            raise ProcessError(f"Kopplung fehlgeschlagen (Windows-Status: {status})."
+                               + hints.get(status, "")
+                               + " Beim Wiederholen wird eine evtl. gespeicherte Kopplung entfernt.")
+        await self._ensure_connected(client)
+
+    async def _fresh_pair(self, client: BleakClient, sid: str | None):
+        """Windows: gespeicherte Kopplung entfernen (falls vorhanden) und neu koppeln."""
+        addr = client.address
+        try:
+            paired = await winpair.is_paired(addr)
+        except Exception:
+            paired = False
+        if paired:
+            self._log("warn", "Windows hat noch eine alte Kopplung gespeichert – wird entfernt …")
+            self._expect_disconnect = True
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+            try:
+                self._log("info", f"Alte Kopplung entfernt ({await winpair.unpair(addr)}).")
+            except Exception as exc:
+                self._log("warn", f"Alte Kopplung konnte nicht entfernt werden ({exc}).")
+            await asyncio.sleep(1.5)
+        await self._ensure_connected(client)
+        await self._do_pair(client, sid)
+
+    async def _ensure_connected(self, client: BleakClient):
+        """Trennt das Modul z. B. während der Kopplung, wird einmal neu verbunden."""
+        if client.is_connected:
+            return
+        name = self._cur_name or client.address
+        self._log("info", f"Verbindung zu „{name}“ wird wiederhergestellt …")
+        self._expect_disconnect = False
+        try:
+            await client.connect()
+        except Exception as exc:
+            raise ProcessError(f"Verbindung zu „{name}“ verloren und nicht wiederherstellbar ({exc}).")
+        await self._verify_proteus(client, name)
+
+    def _auth_text(self, exc) -> str:
+        name = self._cur_name or "Modul"
+        base = (f"Das Modul hat den Zugriff abgelehnt ({exc}). Meist ist auf dem Rechner noch eine "
+                f"alte Kopplung gespeichert, die das Modul nicht mehr kennt (z. B. weil es "
+                f"zwischendurch mit dem Handy gekoppelt war).")
+        if sys.platform == "darwin":
+            return (base + f" Bitte in Systemeinstellungen → Bluetooth das Gerät „{name}“ entfernen "
+                           f"(„Ignorieren“) und dann wiederholen.")
+        return base + " Beim Wiederholen wird sie automatisch entfernt und neu gekoppelt."
 
     def _on_rx(self, _char, data: bytearray):
         payload = bytes(data)

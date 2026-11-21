@@ -1,6 +1,6 @@
 # Proteus-Pairing-MK1
 
-**Version 1.1.0** · Desktop-Programm für Windows und macOS (keine Web-App)
+**Version 1.2.0** · Desktop-Programm für Windows und macOS (keine Web-App)
 
 Arbeitet den Paarungsablauf zwischen einem **Host-Modul** und einem **PTT-Modul** mit
 Würth-Elektronik-**Proteus-II**-Bluetooth-Modulen automatisch ab – über die Bluetooth-Schnittstelle
@@ -20,6 +20,11 @@ des PCs/Macs. Das Programm ersetzt die Bedienung der Proteus-App auf dem Smartph
   in der Werbung oder Würth-Adresse `00:18:DA:…`), liest den vollen Namen und prüft ihn auf
   „Host“/„PTT“. Passt er, wird die Verbindung direkt weiterverwendet. Erkannte Namen werden
   gespeichert (`namen_cache.json`), beim nächsten Mal entfällt die Prüfung.
+- **Zuverlässige Kopplung (Windows):** Hat Windows für ein Modul noch eine alte Kopplung
+  gespeichert, die das Modul nicht mehr kennt (z. B. weil es zwischendurch mit dem Handy
+  gekoppelt war → „Insufficient Authentication“), wird sie automatisch entfernt und neu
+  gekoppelt – wie es das Handy macht. Unterstützt „Nur bestätigen“, Zahlenvergleich und
+  Passkey-Eingabe (Standard `123123`).
 - **Automatische Auswahl ohne Nutzerhandlung:** Suche, Verbindung, Auswahl des Proteus-II-Profils
   (Service `6E400001-C352-11E5-953D-0002A5D5C51B`), Kopplung, Befehle senden, Antwort auswerten.
   Sind mehrere passende Module in Reichweite, wird das mit dem stärksten Signal genommen.
@@ -62,9 +67,9 @@ Per GitHub Actions entstehen (Reiter **Actions** → letzter Lauf, bzw. bei eine
 
 | Datei | Inhalt |
 |---|---|
-| `Proteus-Pairing-MK1-v1.1.0-windows.exe` | **nur die exe** – herunterladen und starten |
-| `Proteus-Pairing-MK1-v1.1.0.zip` | Gesamtpaket: Windows-exe, macOS-App, README, Paarungsanleitung |
-| `Proteus-Pairing-MK1-Offline-Build-Kit-v1.1.0.zip` | Offline-Build-Kit (siehe unten) |
+| `Proteus-Pairing-MK1-v1.2.0-windows.exe` | **nur die exe** – herunterladen und starten |
+| `Proteus-Pairing-MK1-v1.2.0.zip` | Gesamtpaket: Windows-exe, macOS-App, README, Paarungsanleitung |
+| `Proteus-Pairing-MK1-Offline-Build-Kit-v1.2.0.zip` | Offline-Build-Kit (siehe unten) |
 
 > Hinweis: Unter **Actions** packt GitHub jedes Artefakt beim Herunterladen immer in eine
 > ZIP-Hülle (`…-windows-exe.zip`, darin nur die exe). Im **Release** liegt die exe direkt.
@@ -93,6 +98,8 @@ Einstellungen, Verlauf (`verlauf.csv`), Namensspeicher (`namen_cache.json`) und 
 | Max. Suchdauer | 120 s | danach Fehlermeldung mit „Wiederholen“ |
 | Antwort-Timeout / Wiederholungen | 5 s / 3 | für die MAC-Abfrage |
 | Kopplung Host / PTT | an / aus | Kopplung anfordern (Schritt 5) |
+| Vorhandene Windows-Kopplung vorher entfernen | an | alte Kopplung löschen und neu koppeln (verhindert „Insufficient Authentication“) |
+| Passkey (falls verlangt) | `123123` | wird automatisch eingegeben, wenn das Modul einen Passkey verlangt |
 | Kopplung danach entfernen | aus | nur Windows; hält die Bluetooth-Geräteliste sauber |
 | Neustart-Schritte einzeln bestätigen | an | sonst eine Sammelbestätigung für Schritt 14–17 |
 
@@ -124,6 +131,7 @@ Projektstruktur:
 main.py                      Startpunkt
 app/config.py                Version, Einstellungen, Verlauf
 app/engine.py                Ablaufsteuerung + Bluetooth LE (bleak)
+app/winpair.py               Windows-Kopplung (alte Kopplung entfernen, Passkey)
 app/gui.py                   Oberfläche (PySide6/Qt)
 app/style.py                 Farbschema im Dashboard-Design
 assets/                      Programmsymbol (png/ico/icns)

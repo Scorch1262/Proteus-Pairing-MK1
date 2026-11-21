@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 APP_NAME = "Proteus-Pairing-MK1"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 
 
 def data_dir() -> Path:
@@ -63,6 +63,8 @@ class Settings:
     # Kopplung
     pair_host: bool = True
     pair_ptt: bool = False
+    repair_fresh: bool = True            # Windows: vorhandene (evtl. veraltete) Kopplung vorher entfernen
+    passkey: str = "123123"              # falls das Modul einen Passkey verlangt (Proteus-II-Standard)
     unpair_after: bool = False
     # Ablauf
     confirm_restart_steps: bool = True   # Schritte 14–17 einzeln bestätigen
