@@ -84,9 +84,16 @@ jobs:
           cp offline_build_kit/* "$KIT/"
           chmod +x "$KIT/1_mac_pakete_herunterladen.sh"
           zip -r "${KIT}.zip" "$KIT"
+          # einzelne exe ohne alles drumherum
+          cp artifacts/windows/${APP_NAME}.exe "${APP_NAME}-v${VERSION}-windows.exe"
+          echo "exe=${APP_NAME}-v${VERSION}-windows.exe" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "zip=${DIR}.zip" >> "$GITHUB_OUTPUT"
           echo "kit=${KIT}.zip" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-v${{ steps.pkg.outputs.version }}-windows-exe
+          path: ${{ steps.pkg.outputs.exe }}
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ env.APP_NAME }}-v${{ steps.pkg.outputs.version }}
@@ -100,6 +107,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            ${{ steps.pkg.outputs.exe }}
             ${{ steps.pkg.outputs.zip }}
             ${{ steps.pkg.outputs.kit }}
           generate_release_notes: true

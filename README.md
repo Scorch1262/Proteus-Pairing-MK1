@@ -1,6 +1,6 @@
 # Proteus-Pairing-MK1
 
-**Version 1.0.1** · Desktop-Programm für Windows und macOS (keine Web-App)
+**Version 1.0.2** · Desktop-Programm für Windows und macOS (keine Web-App)
 
 Arbeitet den Paarungsablauf zwischen einem **Host-Modul** und einem **PTT-Modul** mit
 Würth-Elektronik-**Proteus-II**-Bluetooth-Modulen automatisch ab – über die Bluetooth-Schnittstelle
@@ -48,22 +48,26 @@ des PCs/Macs. Das Programm ersetzt die Bedienung der Proteus-App auf dem Smartph
 
 ## Download und Start
 
-Das fertige Paket entsteht per GitHub Actions (Reiter **Actions** → letzter Lauf → Artefakt
-`Proteus-Pairing-MK1-v1.0.1`, bzw. bei einem Tag `v*` als Release).
+**Windows: eine einzige exe-Datei** – keine Installation, keine Ordner oder DLLs daneben.
+Die exe kann an einem beliebigen Ort liegen (Desktop, USB-Stick …) und legt dort beim
+Start keine Dateien an.
 
-```
-Proteus-Pairing-MK1-v1.0.1/
-├── Windows/Proteus-Pairing-MK1.exe        ← einzelne exe, keine Installation nötig
-├── macOS/Proteus-Pairing-MK1-macOS.zip    ← entpacken → Proteus-Pairing-MK1.app
-├── Paarungsanleitung.txt
-└── README.md
-```
+Per GitHub Actions entstehen (Reiter **Actions** → letzter Lauf, bzw. bei einem Tag `v*` im Release):
+
+| Datei | Inhalt |
+|---|---|
+| `Proteus-Pairing-MK1-v1.0.2-windows.exe` | **nur die exe** – herunterladen und starten |
+| `Proteus-Pairing-MK1-v1.0.2.zip` | Gesamtpaket: Windows-exe, macOS-App, README, Paarungsanleitung |
+| `Proteus-Pairing-MK1-Offline-Build-Kit-v1.0.2.zip` | Offline-Build-Kit (siehe unten) |
+
+> Hinweis: Unter **Actions** packt GitHub jedes Artefakt beim Herunterladen immer in eine
+> ZIP-Hülle (`…-windows-exe.zip`, darin nur die exe). Im **Release** liegt die exe direkt.
 
 - **Windows 10/11:** exe starten. Bluetooth muss eingeschaltet sein. Beim ersten Start kann der
   SmartScreen-Hinweis erscheinen („Weitere Informationen“ → „Trotzdem ausführen“).
-- **macOS (Apple Silicon, ab macOS 11):** ZIP entpacken, App per Rechtsklick → „Öffnen“ starten
-  (nicht signiert). Bluetooth-Zugriff beim ersten Start erlauben. Falls macOS die App blockiert:
-  `xattr -cr Proteus-Pairing-MK1.app` im Terminal ausführen.
+- **macOS (Apple Silicon, ab macOS 11):** `Proteus-Pairing-MK1-macOS.zip` aus dem Gesamtpaket
+  entpacken, App per Rechtsklick → „Öffnen“ starten (nicht signiert). Bluetooth-Zugriff beim
+  ersten Start erlauben. Falls macOS die App blockiert: `xattr -cr Proteus-Pairing-MK1.app`.
 
 Einstellungen, Verlauf (`verlauf.csv`) und gespeicherte Protokolle liegen unter
 `%APPDATA%\Proteus-Pairing-MK1` (Windows) bzw. `~/Library/Application Support/Proteus-Pairing-MK1` (macOS).

@@ -98,7 +98,7 @@ Das Kit liegt im Repo im Ordner `offline_build_kit`. Es gibt zwei Wege:
 4. Ergebnis liegt in **`fertige_exe`**:
    ```
    fertige_exe/
-   └── Proteus-Pairing-MK1-v1.0.1-windows.exe
+   └── Proteus-Pairing-MK1-v1.0.2-windows.exe
    ```
 
 **Neue Projektversion später bauen:** Weg A – neuen Projektstand in den
@@ -111,7 +111,9 @@ nicht ändert.
 
 ## exe benutzen
 
-Die exe ist eigenständig, es liegen keine weiteren Dateien daneben.
+Die exe ist eine einzige, eigenständige Datei – keine Installation, keine
+DLLs oder Ordner daneben. Sie kann an einem beliebigen Ort liegen und legt
+dort beim Start keine Dateien an.
 Bluetooth am PC einschalten und starten. Einstellungen, Verlauf und
 gespeicherte Protokolle legt das Programm unter
 `%APPDATA%\Proteus-Pairing-MK1` ab.

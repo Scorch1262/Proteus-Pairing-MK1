@@ -60,6 +60,7 @@ if sys.platform == "darwin":
         },
     )
 else:
-    # Eine einzige .exe ohne daneben liegende Ordner
+    # Eine einzige .exe ohne daneben liegende Dateien/Ordner (--onefile).
+    # Einstellungen/Verlauf landen in %APPDATA%\\Proteus-Pairing-MK1, nicht neben der exe.
     exe = EXE(pyz, a.scripts, a.binaries, a.datas, [], name=APP, console=False,
               icon=icon, upx=False, runtime_tmpdir=None)
