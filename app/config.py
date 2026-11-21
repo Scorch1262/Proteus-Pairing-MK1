@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 APP_NAME = "Proteus-Pairing-MK1"
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.5.0"
 
 
 def data_dir() -> Path:
@@ -69,6 +69,8 @@ class Settings:
     pair_host: bool = True
     pair_ptt: bool = False
     ptt_require_fresh: bool = True       # PTT-Modul erst nach Aus-/Einschalten verwenden
+    ptt_hold_s: float = 5.0              # PTT-Taste nach dem Erkennen noch so lange halten (Anleitung Schritt 10)
+    ptt_expect_pairing: bool = True      # Einstellmodus erkennbar an Kopplungsanfrage des PTT-Moduls
     repair_fresh: bool = True            # Windows: vorhandene (evtl. veraltete) Kopplung vorher entfernen
     passkey: str = "123123"              # falls das Modul einen Passkey verlangt (Proteus-II-Standard)
     unpair_after: bool = False

@@ -1,6 +1,6 @@
 # Proteus-Pairing-MK1
 
-**Version 1.4.0** · Desktop-Programm für Windows und macOS (keine Web-App)
+**Version 1.5.0** · Desktop-Programm für Windows und macOS (keine Web-App)
 
 Arbeitet den Paarungsablauf zwischen einem **Host-Modul** und einem **PTT-Modul** mit
 Würth-Elektronik-**Proteus-II**-Bluetooth-Modulen automatisch ab – über die Bluetooth-Schnittstelle
@@ -30,6 +30,12 @@ des PCs/Macs. Das Programm ersetzt die Bedienung der Proteus-App auf dem Smartph
   schon an, fordert das Programm zum Aus-/Einschalten auf und erkennt das automatisch.
   „Fertig“ gibt es erst, wenn das Modul mit „Neue Host MAC gespeichert“ antwortet –
   sonst Wiederholung bzw. klare Fehlermeldung.
+- **PTT-Taste richtig lange halten:** Sobald das PTT-Modul erkannt ist, zeigt das
+  Programm „PTT-Taste weiter gedrückt halten“ mit ablaufendem Balken (5 s) und danach
+  „PTT-Taste jetzt loslassen“ (Anleitung Schritt 9/10).
+- **Einstellmodus erkennen:** Im Einstellmodus verlangt das PTT-Modul eine Kopplung.
+  Bleibt die aus und wird der Befehl nicht bestätigt, lief das Modul im Normalbetrieb –
+  das Programm bricht dann sofort mit einer klaren Anweisung ab (Windows).
 - **Sendevarianten automatisch:** Bestätigt das PTT-Modul nicht, probiert das Programm
   nacheinander, wie Handy-Apps senden: ohne Antwort schreiben, 20-Byte-Pakete
   (Standard-MTU), CR+LF, Kopplung mit dem PTT-Modul, ohne 0x01-Header. Die Variante,
@@ -61,7 +67,7 @@ des PCs/Macs. Das Programm ersetzt die Bedienung der Proteus-App auf dem Smartph
 | MAC-Adresse auslesen & merken | 7–8 | automatisch |
 | PTT-Taste halten + PTT-Modul einschalten | 9 | **Nutzer** (geht automatisch weiter, sobald das Modul gefunden wurde) |
 | „PTT“-Modul suchen & erkennen | 11 | automatisch |
-| Startzeit abwarten (ca. 5 s) | 10 | automatisch |
+| PTT-Taste weiter halten (ca. 5 s) | 10 | **Nutzer** (Balken, danach „loslassen“) |
 | Verbinden · Proteus-II-Profil | 12 | automatisch |
 | „Host:&lt;MAC&gt;“ senden + Bestätigung | 13 | automatisch (wartet auf „… gespeichert“) |
 | PTT-Modul aus / Haupt-Modul aus / Haupt-Modul ein / PTT-Modul ein | 14–17 | **Nutzer** (je „Erledigt“) |
@@ -76,9 +82,9 @@ Per GitHub Actions entstehen (Reiter **Actions** → letzter Lauf, bzw. bei eine
 
 | Datei | Inhalt |
 |---|---|
-| `Proteus-Pairing-MK1-v1.4.0-windows.exe` | **nur die exe** – herunterladen und starten |
-| `Proteus-Pairing-MK1-v1.4.0.zip` | Gesamtpaket: Windows-exe, macOS-App, README, Paarungsanleitung |
-| `Proteus-Pairing-MK1-Offline-Build-Kit-v1.4.0.zip` | Offline-Build-Kit (siehe unten) |
+| `Proteus-Pairing-MK1-v1.5.0-windows.exe` | **nur die exe** – herunterladen und starten |
+| `Proteus-Pairing-MK1-v1.5.0.zip` | Gesamtpaket: Windows-exe, macOS-App, README, Paarungsanleitung |
+| `Proteus-Pairing-MK1-Offline-Build-Kit-v1.5.0.zip` | Offline-Build-Kit (siehe unten) |
 
 > Hinweis: Unter **Actions** packt GitHub jedes Artefakt beim Herunterladen immer in eine
 > ZIP-Hülle (`…-windows-exe.zip`, darin nur die exe). Im **Release** liegt die exe direkt.
@@ -109,6 +115,8 @@ Einstellungen, Verlauf (`verlauf.csv`), Namensspeicher (`namen_cache.json`) und 
 | Proteus-II-Datenheader 0x01 | an | Proteus-II-Profil: jedes Datenpaket beginnt mit 0x01 |
 | Startzeit nach Erkennen | 5 s | „ca. 5 s warten“ |
 | Max. Suchdauer | 120 s | danach Fehlermeldung mit „Wiederholen“ |
+| PTT-Taste halten | 5 s | so lange nach dem Erkennen des PTT-Moduls weiter halten (Balken, dann „loslassen“) |
+| PTT-Einstellmodus an der Kopplungsanfrage erkennen | an | ohne Kopplungsanfrage + ohne Bestätigung → sofort Hinweis „Taste länger halten“ |
 | Wartezeit vor dem Senden | 1 s | nach dem Öffnen des Datenkanals, bevor ein Befehl gesendet wird |
 | Antwort-Timeout / Wiederholungen | 5 s / 3 | für MAC-Abfrage und PTT-Bestätigung |
 | Kopplung Host / PTT | an / aus | Kopplung anfordern (Schritt 5) |

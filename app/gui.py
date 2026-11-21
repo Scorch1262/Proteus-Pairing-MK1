@@ -264,6 +264,10 @@ class SettingsDialog(QDialog):
         self.retr.setValue(s.retries)
         f3.addRow("Startzeit nach Erkennen:", self.boot)
         f3.addRow("Max. Suchdauer:", self.scan)
+        self.hold = self._dspin(s.ptt_hold_s, 0, 30, " s")
+        self.hold.setToolTip("So lange soll die PTT-Taste nach dem Erkennen des Moduls noch gehalten werden.\n"
+                             "Das Programm zeigt dazu einen Balken und danach „loslassen“.")
+        f3.addRow("PTT-Taste halten:", self.hold)
         self.sdelay = self._dspin(s.send_delay_s, 0, 10, " s")
         f3.addRow("Wartezeit vor dem Senden:", self.sdelay)
         f3.addRow("Antwort-Timeout:", self.resp)
@@ -294,12 +298,16 @@ class SettingsDialog(QDialog):
         self.fresh_ptt.setChecked(s.ptt_require_fresh)
         self.fresh_ptt.setToolTip("Ist das PTT-Modul beim Start von Phase 2 schon eingeschaltet (Normalbetrieb),\n"
                                   "wartet das Programm, bis es mit gedrückter PTT-Taste neu eingeschaltet wurde.")
+        self.expect_pair = QCheckBox("PTT-Einstellmodus an der Kopplungsanfrage erkennen (Windows)")
+        self.expect_pair.setChecked(s.ptt_expect_pairing)
+        self.expect_pair.setToolTip("Im Einstellmodus verlangt das PTT-Modul eine Kopplung. Bleibt sie aus und der\n"
+                                    "Befehl unbestätigt, bricht das Programm sofort mit einer Anweisung ab.")
         self.confirm = QCheckBox("Neustart-Schritte 14–17 einzeln bestätigen")
         self.confirm.setChecked(s.confirm_restart_steps)
         for w in (self.p_host, self.p_ptt, self.fresh):
             v4.addWidget(w)
         v4.addLayout(pk_row)
-        for w in (self.unpair, self.fresh_ptt, self.confirm):
+        for w in (self.unpair, self.fresh_ptt, self.expect_pair, self.confirm):
             v4.addWidget(w)
         root.addWidget(g4)
 
@@ -344,6 +352,7 @@ class SettingsDialog(QDialog):
         self.fresh_ptt.setChecked(d.ptt_require_fresh)
         self.wmode.setCurrentText(d.write_mode); self.psize.setValue(d.packet_size)
         self.variants.setChecked(d.try_variants)
+        self.hold.setValue(d.ptt_hold_s); self.expect_pair.setChecked(d.ptt_expect_pairing)
 
     def result_settings(self) -> Settings:
         s = Settings(
@@ -372,6 +381,8 @@ class SettingsDialog(QDialog):
             write_mode=self.wmode.currentText(),
             packet_size=self.psize.value(),
             try_variants=self.variants.isChecked(),
+            ptt_hold_s=self.hold.value(),
+            ptt_expect_pairing=self.expect_pair.isChecked(),
         )
         return s
 

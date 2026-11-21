@@ -77,7 +77,8 @@ def build_steps(s: Settings) -> list[Step]:
         Step("h_mac", "A", "MAC-Adresse auslesen & merken", False, "7–8"),
         Step("p_power", "B", "PTT-Taste halten + PTT-Modul einschalten", True, "9"),
         Step("p_scan", "B", f"„{s.marker_ptt}“-Modul suchen & erkennen", False, "11"),
-        Step("p_wait", "B", f"Startzeit abwarten (ca. {s.boot_wait_s:g} s)", False, "10"),
+        Step("p_wait", "B", f"PTT-Taste weiter halten (ca. {s.ptt_hold_s:g} s)" if s.ptt_hold_s > 0
+             else f"Startzeit abwarten (ca. {s.boot_wait_s:g} s)", s.ptt_hold_s > 0, "10"),
         Step("p_connect", "B", "Verbinden · Proteus-II-Profil", False, "12"),
         Step("p_send", "B", f"„{s.cmd_ptt_prefix}<MAC>“ senden + Bestätigung", False, "13"),
         Step("r_ptt_off", "C", "PTT-Modul ausschalten", True, "14"),
@@ -126,6 +127,7 @@ class PairingEngine:
         self._auth_failed: set[str] = set()   # Adressen mit abgelehnter Authentifizierung
         self._cur_name: str = ""
         self._cur_dev = None
+        self._auth_demanded = False   # hat das aktuelle Modul eine Kopplung verlangt?
 
     # ------------------------------------------------------------------ UI-Hilfen
     def respond(self, choice: str) -> None:
@@ -275,12 +277,14 @@ class PairingEngine:
     async def _phase_ptt(self) -> None:
         s = self.s
         self.ui.on_device("ptt", None)
+        self._auth_demanded = False
         self._step("p_power", "user")
         self._step("p_scan", "active", "Suche läuft …")
         self._show("user", "NUTZERAKTION ERFORDERLICH",
                    "PTT-Knopf am PTT-Modul gedrückt halten und dabei das PTT-Modul einschalten",
-                   hint=f"Das Haupt-Modul bleibt eingeschaltet. Ist das PTT-Modul noch an: erst "
-                        f"ausschalten. Das Programm erkennt das Einschalten automatisch und fährt fort.",
+                   hint=f"Ist das PTT-Modul noch an: erst ausschalten. Die Taste gedrückt lassen, bis "
+                        f"das Programm „loslassen“ anzeigt (ca. {s.ptt_hold_s:g} s nach dem Erkennen). "
+                        f"Das Haupt-Modul bleibt eingeschaltet.",
                    step="p_power")
         exclude = {self.host_info["address"]} if self.host_info else set()
         info, client = await self._acquire("ptt", exclude, "p_power", "p_scan", "p_wait", "p_connect",
@@ -335,6 +339,12 @@ class PairingEngine:
             got = _visible(self._rx_buf.strip())
             self._log("warn", f"Keine Bestätigung „{confirm}“ erhalten"
                               + (f" (Antwort: „{got}“)." if got else " (keine Antwort)."))
+            if i == 1 and await self._ptt_not_in_setup_mode(client):
+                raise ProcessError(
+                    "Das PTT-Modul ist offenbar nicht im Einstellmodus: Es hat keine Kopplung verlangt "
+                    "und den Befehl nicht bestätigt. Bitte PTT-Modul ausschalten, PTT-Taste gedrückt "
+                    "halten, einschalten und die Taste halten, bis das Programm „loslassen“ anzeigt. "
+                    "Dann „PTT-Teil wiederholen“.")
         if self._rx_buf.strip():
             self._log("info", f"Antwort PTT-Modul: {_visible(self._rx_buf.strip())}")
         if ok_variant is None:
@@ -348,6 +358,21 @@ class PairingEngine:
         self._log("ok", "PTT-Modul hat die Host-MAC gespeichert." if confirm else "Host-MAC gesendet.")
         self._step("p_send", "done", "bestätigt" if confirm else "gesendet")
         await self._finish_client(client)
+
+    async def _ptt_not_in_setup_mode(self, client: BleakClient) -> bool:
+        """Im Einstellmodus verlangt das PTT-Modul eine Kopplung. Blieb die aus (und Windows hat
+        keine gültige Kopplung, die sie ersetzt hätte), läuft das Modul im Normalbetrieb."""
+        s = self.s
+        if not (s.ptt_expect_pairing and winpair.AVAILABLE) or s.pair_ptt or self._auth_demanded:
+            return False
+        try:
+            paired = await winpair.is_paired(client.address)
+        except Exception:
+            return False
+        if not paired:
+            self._log("warn", "Das PTT-Modul hat keine Kopplung verlangt – im Einstellmodus tut es das. "
+                              "Vermutlich wurde die PTT-Taste nicht lange genug gehalten.")
+        return not paired
 
     def _ptt_variants(self) -> list[dict]:
         """Varianten, wie Handy-Apps senden – nacheinander probieren, bis das Modul bestätigt."""
@@ -429,6 +454,10 @@ class PairingEngine:
         info = dict(name=name, address=dev.address, rssi=adv.rssi)
         self.ui.on_device(role, info)
         waited = client is not None   # bei der Namensprüfung wurde die Startzeit schon abgewartet
+        if role == "ptt" and self.s.ptt_hold_s > 0:
+            # Anleitung Schritt 9/10: Taste beim Einschalten halten, ca. 5 s warten
+            await self._hold_countdown(sid_wait)
+            waited = True
 
         # Veraltete Windows-Kopplung entfernen (wie beim Handy wird danach neu gekoppelt)
         if winpair.AVAILABLE and self.s.repair_fresh and (do_pair or dev.address in self._auth_failed):
@@ -783,6 +812,29 @@ class PairingEngine:
         except Exception:
             pass
 
+    async def _hold_countdown(self, sid: str):
+        secs = max(0.0, self.s.ptt_hold_s)
+        self._step(sid, "user", "Taste halten")
+        self.ui.on_action(dict(
+            mode="user", title="NUTZERAKTION ERFORDERLICH",
+            text="PTT-Taste weiter gedrückt halten",
+            hint=f"PTT-Modul erkannt. Taste noch ca. {secs:g} s halten, bis hier „loslassen“ "
+                 f"erscheint (Balken unten).",
+            buttons=[], step=sid, busy=False))
+        loop = asyncio.get_running_loop()
+        t0 = loop.time()
+        while (el := loop.time() - t0) < secs:
+            self.ui.on_progress(int(el * 10), int(secs * 10))
+            await asyncio.sleep(0.1)
+        self.ui.on_progress(int(secs * 10), max(1, int(secs * 10)))
+        self.ui.on_action(dict(
+            mode="user", title="NUTZERAKTION ERFORDERLICH", text="PTT-Taste jetzt loslassen",
+            hint="Das Programm verbindet sich gleich automatisch mit dem PTT-Modul.",
+            buttons=[], step=sid, busy=True))
+        self._log("info", f"PTT-Taste {secs:g} s gehalten – Taste kann losgelassen werden.")
+        await asyncio.sleep(1.5)
+        self._step(sid, "done", f"Taste {secs:g} s gehalten")
+
     async def _countdown(self, sid: str, text: str):
         secs = max(0.0, self.s.boot_wait_s)
         self._step(sid, "active")
@@ -855,6 +907,7 @@ class PairingEngine:
             except Exception as exc:
                 if _is_auth_error(exc):
                     self._auth_failed.add(client.address)
+                    self._auth_demanded = True
                     if not winpair.AVAILABLE or fresh_paired:
                         raise ProcessError(self._auth_text(exc))
                     # Einmal automatisch: alte Kopplung entfernen, neu koppeln, erneut öffnen
