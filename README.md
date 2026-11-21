@@ -1,6 +1,6 @@
 # Proteus-Pairing-MK1
 
-**Version 1.2.0** · Desktop-Programm für Windows und macOS (keine Web-App)
+**Version 1.2.1** · Desktop-Programm für Windows und macOS (keine Web-App)
 
 Arbeitet den Paarungsablauf zwischen einem **Host-Modul** und einem **PTT-Modul** mit
 Würth-Elektronik-**Proteus-II**-Bluetooth-Modulen automatisch ab – über die Bluetooth-Schnittstelle
@@ -67,16 +67,16 @@ Per GitHub Actions entstehen (Reiter **Actions** → letzter Lauf, bzw. bei eine
 
 | Datei | Inhalt |
 |---|---|
-| `Proteus-Pairing-MK1-v1.2.0-windows.exe` | **nur die exe** – herunterladen und starten |
-| `Proteus-Pairing-MK1-v1.2.0.zip` | Gesamtpaket: Windows-exe, macOS-App, README, Paarungsanleitung |
-| `Proteus-Pairing-MK1-Offline-Build-Kit-v1.2.0.zip` | Offline-Build-Kit (siehe unten) |
+| `Proteus-Pairing-MK1-v1.2.1-windows.exe` | **nur die exe** – herunterladen und starten |
+| `Proteus-Pairing-MK1-v1.2.1.zip` | Gesamtpaket: Windows-exe, macOS-App, README, Paarungsanleitung |
+| `Proteus-Pairing-MK1-Offline-Build-Kit-v1.2.1.zip` | Offline-Build-Kit (siehe unten) |
 
 > Hinweis: Unter **Actions** packt GitHub jedes Artefakt beim Herunterladen immer in eine
 > ZIP-Hülle (`…-windows-exe.zip`, darin nur die exe). Im **Release** liegt die exe direkt.
 
 - **Windows 10/11:** exe starten. Bluetooth muss eingeschaltet sein. Beim ersten Start kann der
   SmartScreen-Hinweis erscheinen („Weitere Informationen“ → „Trotzdem ausführen“).
-- **macOS (Apple Silicon, ab macOS 11):** `Proteus-Pairing-MK1-macOS.zip` aus dem Gesamtpaket
+- **macOS (Apple Silicon, ab macOS 14 Sonoma):** `Proteus-Pairing-MK1-macOS.zip` aus dem Gesamtpaket
   entpacken, App per Rechtsklick → „Öffnen“ starten (nicht signiert). Bluetooth-Zugriff beim
   ersten Start erlauben. Falls macOS die App blockiert: `xattr -cr Proteus-Pairing-MK1.app`.
 
@@ -103,16 +103,20 @@ Einstellungen, Verlauf (`verlauf.csv`), Namensspeicher (`namen_cache.json`) und 
 | Kopplung danach entfernen | aus | nur Windows; hält die Bluetooth-Geräteliste sauber |
 | Neustart-Schritte einzeln bestätigen | an | sonst eine Sammelbestätigung für Schritt 14–17 |
 
-## Offline bauen (ohne Internet am Windows-PC)
+## Offline bauen (ohne Internet am Build-Rechner)
 
 Im Ordner [`offline_build_kit`](offline_build_kit/ANLEITUNG.md) liegt ein
-Offline-Build-Kit: **der Mac lädt die Pakete, der Windows-10-PC baut die exe**
-– mit derselben Spec-Datei wie GitHub Actions.
+Offline-Build-Kit für **Windows und macOS**: ein Mac mit Internet lädt alle Pakete,
+der Offline-Rechner baut – mit derselben Spec-Datei wie GitHub Actions.
 
-1. Mac: `offline_build_kit/1_mac_pakete_herunterladen.sh` (lädt ca. 85 MB Pakete für Windows / Python 3.11)
-2. Projektordner auf den Win10-PC kopieren → `2_win10_pakete_installieren.bat`
-3. `3_win10_exe_bauen.bat` → `offline_build_kit/fertige_exe/Proteus-Pairing-MK1-v<Version>-windows.exe`
+| Schritt | Windows-exe | macOS-App |
+|---|---|---|
+| 1 – Mac mit Internet | `1_mac_pakete_herunterladen.sh` (lädt beides; `windows` bzw. `mac` für nur eins) | ← dasselbe |
+| 2 – Offline-Rechner | `2_win10_pakete_installieren.bat` | `bash 2_mac_pakete_installieren.sh` |
+| 3 – Offline-Rechner | `3_win10_exe_bauen.bat` | `bash 3_mac_app_bauen.sh` |
+| Ergebnis | `fertige_exe/…-v<Version>-windows.exe` | `fertige_app/….app` + `…-v<Version>-macOS.zip` |
 
+Voraussetzung: Windows 10/11 mit Python 3.11 (64-Bit) bzw. macOS 14+ mit Python 3.10–3.14.
 Details, beide Wege (Projektordner oder Kit + ZIP) und Fehlerbehebung:
 [`offline_build_kit/ANLEITUNG.md`](offline_build_kit/ANLEITUNG.md).
 Das Kit wird außerdem bei jedem Release als eigene ZIP mitgeliefert.
@@ -138,7 +142,7 @@ assets/                      Programmsymbol (png/ico/icns)
 tools/make_icon.py           erzeugt die Symbole neu
 docs/                        Screenshot, Paarungsanleitung
 .github/workflows/build.yml  Build Windows-exe + macOS-App + Gesamt-ZIP + Offline-Kit-ZIP
-offline_build_kit/           Offline-Build-Kit (Mac lädt, Win10 baut)
+offline_build_kit/           Offline-Build-Kit (Mac lädt, Win10 baut exe / Mac baut App)
 ```
 
 Technik: Python 3.12 (Offline-Kit: 3.11), PySide6-Essentials 6.12 (Qt 6), bleak 3.1 (WinRT unter Windows, CoreBluetooth unter macOS),

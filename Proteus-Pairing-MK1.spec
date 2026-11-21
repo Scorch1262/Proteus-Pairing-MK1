@@ -51,7 +51,7 @@ if sys.platform == "darwin":
             "CFBundleShortVersionString": VERSION,
             "CFBundleVersion": VERSION,
             "NSHighResolutionCapable": True,
-            "LSMinimumSystemVersion": "11.0",
+            "LSMinimumSystemVersion": "14.0",  # PySide6 6.12 braucht macOS 14+
             # Pflicht, sonst beendet macOS das Programm beim ersten Bluetooth-Zugriff
             "NSBluetoothAlwaysUsageDescription":
                 "Proteus Pairing benötigt Bluetooth, um Proteus-II-Module zu finden und zu konfigurieren.",

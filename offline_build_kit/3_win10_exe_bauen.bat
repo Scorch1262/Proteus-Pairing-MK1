@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================
-REM  Proteus-Pairing-MK1 Offline-Build-Kit v1.0.0
+REM  Proteus-Pairing-MK1 Offline-Build-Kit v1.1.0
 REM  Schritt 3 von 3 - auf dem Windows-10-PC ausfuehren, NACHDEM
 REM  Schritt 2 (Pakete installieren) einmal erfolgreich lief.
 REM
@@ -23,7 +23,7 @@ set "EXEBASE=Proteus-Pairing-MK1"
 set "SPECNAME=Proteus-Pairing-MK1.spec"
 
 echo.
-echo === Proteus-Pairing-MK1 Offline-Build-Kit v1.0.0 ===
+echo === Proteus-Pairing-MK1 Offline-Build-Kit v1.1.0 ===
 echo === Schritt 3: exe bauen ===
 echo.
 

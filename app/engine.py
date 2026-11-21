@@ -37,6 +37,13 @@ MAC_RE = re.compile(r"([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})")
 MAC_LINE_RE = re.compile(r"MAC\s*:?\s*([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})", re.IGNORECASE)
 
 
+def _is_stale_error(exc) -> bool:
+    """Geschlossene/ungültige Sitzung (z. B. WinRT RO_E_CLOSED 0x80000013) oder getrennt."""
+    msg = str(exc).lower()
+    return any(k in msg for k in ("geschlossen", "closed", "not connected", "nicht verbunden",
+                                  "-2147483629", "disconnected", "unreachable"))
+
+
 def _is_auth_error(exc) -> bool:
     msg = str(exc).lower()
     return any(k in msg for k in ("authentication", "authorization", "encryption", "insufficient"))
@@ -118,6 +125,7 @@ class PairingEngine:
         self.name_cache: dict[str, str] = self._load_name_cache()  # Adresse -> voller Name
         self._auth_failed: set[str] = set()   # Adressen mit abgelehnter Authentifizierung
         self._cur_name: str = ""
+        self._cur_dev = None
 
     # ------------------------------------------------------------------ UI-Hilfen
     def respond(self, choice: str) -> None:
@@ -236,7 +244,7 @@ class PairingEngine:
                                            "Haupt-Modul startet …", s.pair_host)
         self.host_info = info
 
-        await self._pair_and_open(client, "h_pair", s.pair_host)
+        client = await self._pair_and_open(client, "h_pair", s.pair_host)
 
         mac = None
         for attempt in range(1, max(1, s.retries) + 1):
@@ -278,7 +286,7 @@ class PairingEngine:
         info, client = await self._acquire("ptt", exclude, "p_power", "p_scan", "p_wait", "p_connect",
                                            "PTT-Modul startet …", s.pair_ptt)
         self.ptt_info = info
-        await self._pair_and_open(client, None, s.pair_ptt)
+        client = await self._pair_and_open(client, None, s.pair_ptt)
 
         cmd = f"{s.cmd_ptt_prefix}{self.mac}"
         self._step("p_send", "active")
@@ -296,6 +304,7 @@ class PairingEngine:
         """Modul finden, Startzeit abwarten, verbinden – gemeinsam für Host und PTT."""
         dev, adv, name, client = await self._find(role, exclude, sid_scan)
         self._cur_name = name
+        self._cur_dev = dev
         self._step(sid_power, "done")
         self._step(sid_scan, "done", name)
         info = dict(name=name, address=dev.address, rssi=adv.rssi)
@@ -341,8 +350,10 @@ class PairingEngine:
         else:
             self._step(sid_wait, "done", "während der Erkennung abgewartet")
             self._step(sid_connect, "active", "bestehende Verbindung")
-            await self._ensure_connected(client)
-            await self._verify_proteus(client, name)
+            if client.is_connected:
+                await self._verify_proteus(client, name)
+            else:
+                client = await self._reconnect(client)
         self._step(sid_connect, "done", "Proteus-II-Profil gefunden")
         return info, client
 
@@ -661,37 +672,43 @@ class PairingEngine:
         self._log("info", f"Verbunden. Proteus-II-Profil ausgewählt, "
                           f"max. {tx.max_write_without_response_size} Byte pro Paket.")
 
-    async def _pair_and_open(self, client: BleakClient, sid: str | None, do_pair: bool):
+    async def _pair_and_open(self, client: BleakClient, sid: str | None, do_pair: bool) -> BleakClient:
+        """Koppeln (falls gewünscht) und Datenkanal öffnen. Gibt den aktiven Client zurück –
+        nach einer Wiederverbindung ist das ein NEUES Client-Objekt."""
         if sid:
             self._step(sid, "active")
         if do_pair:
-            await self._do_pair(client, sid)
+            client = await self._do_pair(client, sid)
         self._rx_event = asyncio.Event()
-        try:
-            await self._ensure_connected(client)
-            await asyncio.wait_for(client.start_notify(self._rx_char, self._on_rx), 60)
-        except ProcessError:
-            raise
-        except Exception as exc:
-            if not _is_auth_error(exc):
-                raise ProcessError(f"Datenkanal konnte nicht geöffnet werden ({exc}).")
-            self._auth_failed.add(client.address)
-            if not winpair.AVAILABLE:
-                raise ProcessError(self._auth_text(exc))
-            # Einmal automatisch: alte Kopplung entfernen, neu koppeln, erneut öffnen
-            self._log("warn", "Das Modul verlangt eine (neue) Kopplung – wird automatisch hergestellt …")
-            await self._fresh_pair(client, sid)
+        fresh_paired = False
+        for attempt in range(1, 4):
             try:
-                await self._ensure_connected(client)
+                client = await self._ensure_connected(client)
                 await asyncio.wait_for(client.start_notify(self._rx_char, self._on_rx), 60)
-            except Exception as exc2:
-                raise ProcessError(self._auth_text(exc2))
-            self._auth_failed.discard(client.address)
-            do_pair = True
+                break
+            except ProcessError:
+                raise
+            except Exception as exc:
+                if _is_auth_error(exc):
+                    self._auth_failed.add(client.address)
+                    if not winpair.AVAILABLE or fresh_paired:
+                        raise ProcessError(self._auth_text(exc))
+                    # Einmal automatisch: alte Kopplung entfernen, neu koppeln, erneut öffnen
+                    self._log("warn", "Das Modul verlangt eine (neue) Kopplung – wird automatisch hergestellt …")
+                    client = await self._fresh_pair(client, sid)
+                    fresh_paired = do_pair = True
+                    self._auth_failed.discard(client.address)
+                elif _is_stale_error(exc) and attempt < 3:
+                    # Verbindung/Sitzung nach der Kopplung geschlossen -> ganz neu verbinden
+                    self._log("warn", f"Verbindung nach der Kopplung nicht mehr gültig ({exc}) – verbinde neu …")
+                    client = await self._reconnect(client)
+                else:
+                    raise ProcessError(f"Datenkanal konnte nicht geöffnet werden ({exc}).")
         if sid:
             self._step(sid, "done", "gekoppelt" if do_pair else "")
+        return client
 
-    async def _do_pair(self, client: BleakClient, sid: str | None):
+    async def _do_pair(self, client: BleakClient, sid: str | None) -> BleakClient:
         name = self._cur_name or client.address
         if sys.platform == "darwin":
             # macOS koppelt selbst beim ersten geschützten Zugriff und zeigt ggf. einen Dialog
@@ -699,19 +716,19 @@ class PairingEngine:
                        "Falls macOS einen Kopplungsdialog anzeigt: bitte „Verbinden“ bzw. "
                        "„Koppeln“ bestätigen.",
                        hint="Der Ablauf läuft danach automatisch weiter.", step=sid or "")
-            return
+            return client
         if not winpair.AVAILABLE:
             try:
                 await asyncio.wait_for(client.pair(), 60)
             except Exception as exc:
                 self._log("warn", f"Kopplung nicht möglich oder nicht nötig ({exc}) – fahre fort.")
-            return
+            return client
 
         self._show("auto", "KOPPLUNG", f"Kopplung mit „{name}“ wird hergestellt …",
                    hint=f"Wird automatisch bestätigt. Fragt das Modul nach einem Passkey, wird "
                         f"„{self.s.passkey}“ eingegeben (änderbar in den Einstellungen).",
                    step=sid or "")
-        await self._ensure_connected(client)
+        client = await self._ensure_connected(client)
         try:
             status, kinds = await asyncio.wait_for(
                 winpair.pair(client.address, self.s.passkey, self._log), 60)
@@ -723,6 +740,8 @@ class PairingEngine:
             self._log("info", "Angefragte Kopplungsart: " + ", ".join(kinds))
         if status == "PAIRED":
             self._log("ok", "Kopplung hergestellt.")
+            # Viele Module trennen direkt nach der Kopplung – kurz abwarten, dann sauber neu verbinden
+            await asyncio.sleep(1.0)
         elif status == "ALREADY_PAIRED":
             self._log("info", "Windows meldet: bereits gekoppelt.")
         else:
@@ -737,9 +756,9 @@ class PairingEngine:
             raise ProcessError(f"Kopplung fehlgeschlagen (Windows-Status: {status})."
                                + hints.get(status, "")
                                + " Beim Wiederholen wird eine evtl. gespeicherte Kopplung entfernt.")
-        await self._ensure_connected(client)
+        return await self._ensure_connected(client)
 
-    async def _fresh_pair(self, client: BleakClient, sid: str | None):
+    async def _fresh_pair(self, client: BleakClient, sid: str | None) -> BleakClient:
         """Windows: gespeicherte Kopplung entfernen (falls vorhanden) und neu koppeln."""
         addr = client.address
         try:
@@ -748,31 +767,40 @@ class PairingEngine:
             paired = False
         if paired:
             self._log("warn", "Windows hat noch eine alte Kopplung gespeichert – wird entfernt …")
-            self._expect_disconnect = True
-            try:
-                await client.disconnect()
-            except Exception:
-                pass
+            await self._drop(client)
             try:
                 self._log("info", f"Alte Kopplung entfernt ({await winpair.unpair(addr)}).")
             except Exception as exc:
                 self._log("warn", f"Alte Kopplung konnte nicht entfernt werden ({exc}).")
             await asyncio.sleep(1.5)
-        await self._ensure_connected(client)
-        await self._do_pair(client, sid)
+        client = await self._ensure_connected(client)
+        return await self._do_pair(client, sid)
 
-    async def _ensure_connected(self, client: BleakClient):
-        """Trennt das Modul z. B. während der Kopplung, wird einmal neu verbunden."""
-        if client.is_connected:
-            return
-        name = self._cur_name or client.address
-        self._log("info", f"Verbindung zu „{name}“ wird wiederhergestellt …")
-        self._expect_disconnect = False
+    async def _drop(self, client: BleakClient):
+        """Client trennen und verwerfen (wird nicht wiederverwendet)."""
+        self._expect_disconnect = True
         try:
-            await client.connect()
-        except Exception as exc:
-            raise ProcessError(f"Verbindung zu „{name}“ verloren und nicht wiederherstellbar ({exc}).")
-        await self._verify_proteus(client, name)
+            await asyncio.wait_for(client.disconnect(), 5)
+        except Exception:
+            pass
+        if client in self._clients:
+            self._clients.remove(client)
+
+    async def _ensure_connected(self, client: BleakClient) -> BleakClient:
+        """Ist die Verbindung weg (z. B. nach der Kopplung), mit NEUEM Client neu verbinden."""
+        if client.is_connected:
+            return client
+        return await self._reconnect(client)
+
+    async def _reconnect(self, client: BleakClient) -> BleakClient:
+        # Unter Windows sind Sitzung/Characteristics eines getrennten Clients geschlossen
+        # („Das Objekt wurde geschlossen“) – deshalb immer ein frisches Client-Objekt.
+        name = self._cur_name or client.address
+        self._log("info", f"Verbindung zu „{name}“ wird neu aufgebaut …")
+        await self._drop(client)
+        await asyncio.sleep(0.5)
+        target = self._cur_dev if self._cur_dev is not None else client.address
+        return await self._connect(target, name)
 
     def _auth_text(self, exc) -> str:
         name = self._cur_name or "Modul"

@@ -82,7 +82,7 @@ jobs:
           KIT="${APP_NAME}-Offline-Build-Kit-v${VERSION}"
           mkdir -p "$KIT"
           cp offline_build_kit/* "$KIT/"
-          chmod +x "$KIT/1_mac_pakete_herunterladen.sh"
+          chmod +x "$KIT"/*.sh
           zip -r "${KIT}.zip" "$KIT"
           # einzelne exe ohne alles drumherum
           cp artifacts/windows/${APP_NAME}.exe "${APP_NAME}-v${VERSION}-windows.exe"
