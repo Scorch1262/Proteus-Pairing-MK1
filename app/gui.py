@@ -183,8 +183,16 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("Einstellungen")
         self.setMinimumWidth(520)
         self.s = s
-        root = QVBoxLayout(self)
-        root.setContentsMargins(16, 16, 16, 16)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(16, 16, 16, 16)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }")
+        inner = QWidget()
+        root = QVBoxLayout(inner)
+        root.setContentsMargins(0, 0, 8, 0)
 
         g1 = QGroupBox("ERKENNUNG")
         f1 = QFormLayout(g1)
@@ -219,6 +227,11 @@ class SettingsDialog(QDialog):
         self.hdr.setChecked(s.proteus_header)
         f2.addRow("MAC-Abfrage am Host:", self.c_mac)
         f2.addRow("Präfix am PTT-Modul:", self.c_ptt)
+        self.c_conf = QLineEdit(s.ptt_confirm)
+        self.c_conf.setPlaceholderText("leer = nicht prüfen")
+        self.c_conf.setToolTip("Text, den das PTT-Modul nach dem Speichern zurückschickt\n"
+                               "(z. B. „Neue Host MAC gespeichert“). Ohne diese Antwort gilt die Paarung als fehlgeschlagen.")
+        f2.addRow("Bestätigung PTT-Modul:", self.c_conf)
         f2.addRow("Zeilenende:", self.le)
         f2.addRow(self.hdr)
         root.addWidget(g2)
@@ -234,6 +247,8 @@ class SettingsDialog(QDialog):
         self.retr.setValue(s.retries)
         f3.addRow("Startzeit nach Erkennen:", self.boot)
         f3.addRow("Max. Suchdauer:", self.scan)
+        self.sdelay = self._dspin(s.send_delay_s, 0, 10, " s")
+        f3.addRow("Wartezeit vor dem Senden:", self.sdelay)
         f3.addRow("Antwort-Timeout:", self.resp)
         f3.addRow("Nachlauf PTT-Antwort:", self.pttw)
         f3.addRow("Wiederholungen:", self.retr)
@@ -258,12 +273,16 @@ class SettingsDialog(QDialog):
         pk_row.addWidget(pk_lbl)
         pk_row.addWidget(self.passkey)
         pk_row.addStretch(1)
+        self.fresh_ptt = QCheckBox("PTT-Modul erst nach Aus-/Einschalten verwenden (Einstellmodus)")
+        self.fresh_ptt.setChecked(s.ptt_require_fresh)
+        self.fresh_ptt.setToolTip("Ist das PTT-Modul beim Start von Phase 2 schon eingeschaltet (Normalbetrieb),\n"
+                                  "wartet das Programm, bis es mit gedrückter PTT-Taste neu eingeschaltet wurde.")
         self.confirm = QCheckBox("Neustart-Schritte 14–17 einzeln bestätigen")
         self.confirm.setChecked(s.confirm_restart_steps)
         for w in (self.p_host, self.p_ptt, self.fresh):
             v4.addWidget(w)
         v4.addLayout(pk_row)
-        for w in (self.unpair, self.confirm):
+        for w in (self.unpair, self.fresh_ptt, self.confirm):
             v4.addWidget(w)
         root.addWidget(g4)
 
@@ -275,7 +294,13 @@ class SettingsDialog(QDialog):
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         bb.button(QDialogButtonBox.RestoreDefaults).clicked.connect(self._defaults)
-        root.addWidget(bb)
+        scroll.setWidget(inner)
+        outer.addWidget(scroll, 1)
+        outer.addWidget(bb)
+        # Höhe an den Bildschirm anpassen (Laptop mit Skalierung)
+        screen = QGuiApplication.primaryScreen()
+        avail = screen.availableGeometry().height() if screen else 900
+        self.resize(560, min(inner.sizeHint().height() + 90, int(avail * 0.85)))
 
     @staticmethod
     def _dspin(val, lo, hi, suffix):
@@ -298,6 +323,8 @@ class SettingsDialog(QDialog):
         self.p_ptt.setChecked(d.pair_ptt); self.unpair.setChecked(d.unpair_after)
         self.confirm.setChecked(d.confirm_restart_steps)
         self.fresh.setChecked(d.repair_fresh); self.passkey.setText(d.passkey)
+        self.c_conf.setText(d.ptt_confirm); self.sdelay.setValue(d.send_delay_s)
+        self.fresh_ptt.setChecked(d.ptt_require_fresh)
 
     def result_settings(self) -> Settings:
         s = Settings(
@@ -320,6 +347,9 @@ class SettingsDialog(QDialog):
             confirm_restart_steps=self.confirm.isChecked(),
             repair_fresh=self.fresh.isChecked(),
             passkey=self.passkey.text().strip() or "123123",
+            ptt_confirm=self.c_conf.text().strip(),
+            send_delay_s=self.sdelay.value(),
+            ptt_require_fresh=self.fresh_ptt.isChecked(),
         )
         return s
 

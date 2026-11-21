@@ -1,6 +1,6 @@
 # Proteus-Pairing-MK1
 
-**Version 1.2.1** · Desktop-Programm für Windows und macOS (keine Web-App)
+**Version 1.3.0** · Desktop-Programm für Windows und macOS (keine Web-App)
 
 Arbeitet den Paarungsablauf zwischen einem **Host-Modul** und einem **PTT-Modul** mit
 Würth-Elektronik-**Proteus-II**-Bluetooth-Modulen automatisch ab – über die Bluetooth-Schnittstelle
@@ -25,6 +25,11 @@ des PCs/Macs. Das Programm ersetzt die Bedienung der Proteus-App auf dem Smartph
   gekoppelt war → „Insufficient Authentication“), wird sie automatisch entfernt und neu
   gekoppelt – wie es das Handy macht. Unterstützt „Nur bestätigen“, Zahlenvergleich und
   Passkey-Eingabe (Standard `123123`).
+- **Gesicherte PTT-Konfiguration:** Das PTT-Modul wird nur verwendet, wenn es während
+  Phase 2 frisch eingeschaltet wurde (mit gedrückter PTT-Taste = Einstellmodus). War es
+  schon an, fordert das Programm zum Aus-/Einschalten auf und erkennt das automatisch.
+  „Fertig“ gibt es erst, wenn das Modul mit „Neue Host MAC gespeichert“ antwortet –
+  sonst Wiederholung bzw. klare Fehlermeldung.
 - **Automatische Auswahl ohne Nutzerhandlung:** Suche, Verbindung, Auswahl des Proteus-II-Profils
   (Service `6E400001-C352-11E5-953D-0002A5D5C51B`), Kopplung, Befehle senden, Antwort auswerten.
   Sind mehrere passende Module in Reichweite, wird das mit dem stärksten Signal genommen.
@@ -54,7 +59,7 @@ des PCs/Macs. Das Programm ersetzt die Bedienung der Proteus-App auf dem Smartph
 | „PTT“-Modul suchen & erkennen | 11 | automatisch |
 | Startzeit abwarten (ca. 5 s) | 10 | automatisch |
 | Verbinden · Proteus-II-Profil | 12 | automatisch |
-| „Host:&lt;MAC&gt;“ senden | 13 | automatisch |
+| „Host:&lt;MAC&gt;“ senden + Bestätigung | 13 | automatisch (wartet auf „… gespeichert“) |
 | PTT-Modul aus / Haupt-Modul aus / Haupt-Modul ein / PTT-Modul ein | 14–17 | **Nutzer** (je „Erledigt“) |
 
 ## Download und Start
@@ -67,9 +72,9 @@ Per GitHub Actions entstehen (Reiter **Actions** → letzter Lauf, bzw. bei eine
 
 | Datei | Inhalt |
 |---|---|
-| `Proteus-Pairing-MK1-v1.2.1-windows.exe` | **nur die exe** – herunterladen und starten |
-| `Proteus-Pairing-MK1-v1.2.1.zip` | Gesamtpaket: Windows-exe, macOS-App, README, Paarungsanleitung |
-| `Proteus-Pairing-MK1-Offline-Build-Kit-v1.2.1.zip` | Offline-Build-Kit (siehe unten) |
+| `Proteus-Pairing-MK1-v1.3.0-windows.exe` | **nur die exe** – herunterladen und starten |
+| `Proteus-Pairing-MK1-v1.3.0.zip` | Gesamtpaket: Windows-exe, macOS-App, README, Paarungsanleitung |
+| `Proteus-Pairing-MK1-Offline-Build-Kit-v1.3.0.zip` | Offline-Build-Kit (siehe unten) |
 
 > Hinweis: Unter **Actions** packt GitHub jedes Artefakt beim Herunterladen immer in eine
 > ZIP-Hülle (`…-windows-exe.zip`, darin nur die exe). Im **Release** liegt die exe direkt.
@@ -92,15 +97,18 @@ Einstellungen, Verlauf (`verlauf.csv`), Namensspeicher (`namen_cache.json`) und 
 | Namensanfang prüfen | leer | zusätzlich alle Geräte mit diesem (gekürzten) Namensanfang prüfen, z. B. `Albre` – nötig unter macOS, falls das Modul keine Proteus-UUID sendet (macOS zeigt keine MAC-Adressen) |
 | MAC-Abfrage am Host | `BT-MAC?` | Befehl an das Host-Modul |
 | Präfix am PTT-Modul | `Host:` | wird mit der MAC zu `Host:00:18:DA:…` |
+| Bestätigung PTT-Modul | `gespeichert` | muss in der Antwort vorkommen („Neue Host MAC gespeichert“); leer = nicht prüfen |
 | Zeilenende | kein | wie in der Proteus-App; bei Bedarf CR / LF / CR+LF |
 | Proteus-II-Datenheader 0x01 | an | Proteus-II-Profil: jedes Datenpaket beginnt mit 0x01 |
 | Startzeit nach Erkennen | 5 s | „ca. 5 s warten“ |
 | Max. Suchdauer | 120 s | danach Fehlermeldung mit „Wiederholen“ |
-| Antwort-Timeout / Wiederholungen | 5 s / 3 | für die MAC-Abfrage |
+| Wartezeit vor dem Senden | 1 s | nach dem Öffnen des Datenkanals, bevor ein Befehl gesendet wird |
+| Antwort-Timeout / Wiederholungen | 5 s / 3 | für MAC-Abfrage und PTT-Bestätigung |
 | Kopplung Host / PTT | an / aus | Kopplung anfordern (Schritt 5) |
 | Vorhandene Windows-Kopplung vorher entfernen | an | alte Kopplung löschen und neu koppeln (verhindert „Insufficient Authentication“) |
 | Passkey (falls verlangt) | `123123` | wird automatisch eingegeben, wenn das Modul einen Passkey verlangt |
 | Kopplung danach entfernen | aus | nur Windows; hält die Bluetooth-Geräteliste sauber |
+| PTT-Modul erst nach Aus-/Einschalten verwenden | an | verhindert, dass ein noch laufendes PTT-Modul (Normalbetrieb) verwendet wird |
 | Neustart-Schritte einzeln bestätigen | an | sonst eine Sammelbestätigung für Schritt 14–17 |
 
 ## Offline bauen (ohne Internet am Build-Rechner)

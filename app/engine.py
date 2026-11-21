@@ -79,7 +79,7 @@ def build_steps(s: Settings) -> list[Step]:
         Step("p_scan", "B", f"„{s.marker_ptt}“-Modul suchen & erkennen", False, "11"),
         Step("p_wait", "B", f"Startzeit abwarten (ca. {s.boot_wait_s:g} s)", False, "10"),
         Step("p_connect", "B", "Verbinden · Proteus-II-Profil", False, "12"),
-        Step("p_send", "B", f"„{s.cmd_ptt_prefix}<MAC>“ senden", False, "13"),
+        Step("p_send", "B", f"„{s.cmd_ptt_prefix}<MAC>“ senden + Bestätigung", False, "13"),
         Step("r_ptt_off", "C", "PTT-Modul ausschalten", True, "14"),
         Step("r_host_off", "C", "Haupt-Modul ausschalten", True, "15"),
         Step("r_host_on", "C", "Haupt-Modul einschalten", True, "16"),
@@ -247,6 +247,7 @@ class PairingEngine:
         client = await self._pair_and_open(client, "h_pair", s.pair_host)
 
         mac = None
+        await self._settle_before_send()
         for attempt in range(1, max(1, s.retries) + 1):
             self._step("h_cmd", "active", f"Versuch {attempt}")
             self._show("auto", "AUTOMATISCH", f"Sende „{s.cmd_host_mac}“ …",
@@ -278,31 +279,81 @@ class PairingEngine:
         self._step("p_scan", "active", "Suche läuft …")
         self._show("user", "NUTZERAKTION ERFORDERLICH",
                    "PTT-Knopf am PTT-Modul gedrückt halten und dabei das PTT-Modul einschalten",
-                   hint=f"Das Haupt-Modul bleibt eingeschaltet. Das Programm sucht automatisch nach "
-                        f"einem Modul mit „{s.marker_ptt}“ im Namen und fährt fort, sobald es "
-                        f"gefunden wurde.",
+                   hint=f"Das Haupt-Modul bleibt eingeschaltet. Ist das PTT-Modul noch an: erst "
+                        f"ausschalten. Das Programm erkennt das Einschalten automatisch und fährt fort.",
                    step="p_power")
         exclude = {self.host_info["address"]} if self.host_info else set()
         info, client = await self._acquire("ptt", exclude, "p_power", "p_scan", "p_wait", "p_connect",
-                                           "PTT-Modul startet …", s.pair_ptt)
+                                           "PTT-Modul startet …", s.pair_ptt,
+                                           require_fresh=s.ptt_require_fresh)
         self.ptt_info = info
         client = await self._pair_and_open(client, None, s.pair_ptt)
 
         cmd = f"{s.cmd_ptt_prefix}{self.mac}"
-        self._step("p_send", "active")
-        self._show("auto", "AUTOMATISCH", f"Sende „{cmd}“ …", step="p_send")
-        self._rx_buf = ""
+        confirm = s.ptt_confirm.strip()
         self._expect_disconnect = True  # Modul darf sich danach selbst trennen
-        await self._send(client, cmd)
-        await asyncio.sleep(max(0.0, s.ptt_reply_wait_s))
+        await self._settle_before_send()
+        ok = False
+        for attempt in range(1, max(1, s.retries) + 1):
+            self._step("p_send", "active", f"Versuch {attempt}")
+            self._show("auto", "AUTOMATISCH", f"Sende „{cmd}“ …",
+                       hint=(f"Warte auf Bestätigung „{confirm}“ vom PTT-Modul …" if confirm else "")
+                            + (f"  (Versuch {attempt} von {s.retries})" if attempt > 1 else ""),
+                       step="p_send")
+            self._rx_buf = ""
+            if not client.is_connected:
+                raise ProcessError("Das PTT-Modul hat die Verbindung getrennt, bevor die Host-MAC "
+                                   "bestätigt wurde.")
+            await self._send(client, cmd)
+            if not confirm:
+                await asyncio.sleep(max(0.0, s.ptt_reply_wait_s))
+                ok = True
+                break
+            if await self._wait_for_text(confirm, max(s.response_timeout_s, s.ptt_reply_wait_s)):
+                await asyncio.sleep(0.3)   # Rest der Meldung abwarten
+                ok = True
+                break
+            got = _visible(self._rx_buf.strip())
+            self._log("warn", f"Keine Bestätigung „{confirm}“ erhalten"
+                              + (f" (Antwort: „{got}“)." if got else " (keine Antwort)."))
         if self._rx_buf.strip():
             self._log("info", f"Antwort PTT-Modul: {_visible(self._rx_buf.strip())}")
-        self._step("p_send", "done", "gesendet")
+        if not ok:
+            raise ProcessError(
+                f"Das PTT-Modul hat das Speichern der Host-MAC nicht bestätigt (erwartet: „{confirm}“). "
+                f"Meist wurde das PTT-Modul nicht mit gedrückter PTT-Taste eingeschaltet. "
+                f"Beim Wiederholen: PTT-Modul aus, PTT-Taste halten, einschalten.")
+        self._log("ok", "PTT-Modul hat die Host-MAC gespeichert." if confirm else "Host-MAC gesendet.")
+        self._step("p_send", "done", "bestätigt" if confirm else "gesendet")
         await self._finish_client(client)
 
-    async def _acquire(self, role, exclude, sid_power, sid_scan, sid_wait, sid_connect, wait_text, do_pair):
+    async def _settle_before_send(self):
+        """Nach dem Öffnen des Datenkanals kurz warten – die Modul-Firmware braucht einen Moment."""
+        d = max(0.0, self.s.send_delay_s)
+        if d:
+            await asyncio.sleep(d)
+
+    async def _wait_for_text(self, text: str, timeout: float) -> bool:
+        loop = asyncio.get_running_loop()
+        end = loop.time() + timeout
+        needle = text.lower()
+        while True:
+            if needle in self._rx_buf.lower():
+                return True
+            rest = end - loop.time()
+            if rest <= 0:
+                return False
+            self._rx_event.clear()
+            try:
+                await asyncio.wait_for(self._rx_event.wait(), rest)
+            except asyncio.TimeoutError:
+                pass
+
+    async def _acquire(self, role, exclude, sid_power, sid_scan, sid_wait, sid_connect, wait_text, do_pair,
+                       require_fresh=False):
         """Modul finden, Startzeit abwarten, verbinden – gemeinsam für Host und PTT."""
-        dev, adv, name, client = await self._find(role, exclude, sid_scan)
+        dev, adv, name, client = await self._find(role, exclude, sid_scan, require_fresh)
+        self._response = None
         self._cur_name = name
         self._cur_dev = dev
         self._step(sid_power, "done")
@@ -399,7 +450,7 @@ class PairingEngine:
     def _known_name(self, e: dict) -> str:
         return self.name_cache.get(e["dev"].address) or e["name"]
 
-    async def _find(self, role: str, exclude: set[str], sid_scan: str):
+    async def _find(self, role: str, exclude: set[str], sid_scan: str, require_fresh: bool = False):
         """Sucht ein Modul der Rolle host/ptt.
 
         1. Voller Name schon in der Werbung (oder aus dem Namensspeicher) -> direkt.
@@ -413,6 +464,12 @@ class PairingEngine:
         failed: dict[str, float] = {}       # Adresse -> Zeitpunkt des Fehlversuchs
         mismatch: set[str] = set()          # geprüft, falsche Rolle
         marker = s.marker_host if role == "host" else s.marker_ptt
+        t_start = loop.time()
+        scanning = {"on": False}
+        FRESH_WINDOW = 2.0   # in den ersten 2 s gesehen = war schon eingeschaltet
+        OFF_GAP = 2.5        # so lange nicht gesehen = war ausgeschaltet
+        stale_warned: set[str] = set()
+        accept_stale = {"on": False}
 
         def detected(device, adv):
             addr = device.address
@@ -423,7 +480,8 @@ class PairingEngine:
             e = seen.get(addr)
             if e is None:
                 e = seen[addr] = dict(
-                    dev=device, adv=adv, name=name, first=now,
+                    dev=device, adv=adv, name=name, first=now, last=now,
+                    stale=require_fresh and now - t_start < FRESH_WINDOW,
                     uuid=PROTEUS_SERVICE in [u.lower() for u in (adv.service_uuids or [])],
                     oui=addr.upper().startswith(WURTH_OUI))
                 if self._is_candidate(e) or role_of(self._known_name(e), s):
@@ -433,6 +491,11 @@ class PairingEngine:
                                       + (f"  · {', '.join(tags)}" if tags else "")
                                       + (f"  · bekannt als „{known}“" if known and known != name else ""))
             else:
+                if e["stale"] and scanning["on"] and now - e["last"] >= OFF_GAP:
+                    e["stale"] = False
+                    e["first"] = now   # Startzeit ab Wiedereinschalten
+                    self._log("ok", f"„{self._known_name(e) or addr}“ wurde neu eingeschaltet.")
+                e["last"] = now
                 e["dev"], e["adv"] = device, adv
                 if len(name) > len(e["name"]):
                     e["name"] = name
@@ -442,13 +505,18 @@ class PairingEngine:
         scanner = BleakScanner(detection_callback=detected)
 
         async def start():
+            now = loop.time()
+            for e in seen.values():
+                e["last"] = now   # Pause der Suche nicht als „ausgeschaltet“ werten
             try:
                 await scanner.start()
+                scanning["on"] = True
             except Exception as exc:
                 raise ProcessError(f"Bluetooth-Suche konnte nicht gestartet werden ({exc}). "
                                    f"Ist Bluetooth am Rechner eingeschaltet?")
 
         async def stop():
+            scanning["on"] = False
             try:
                 await scanner.stop()
             except Exception:
@@ -464,12 +532,39 @@ class PairingEngine:
                 self.ui.on_progress(0, 0)
                 await asyncio.sleep(0.5)
 
+                if self._response is not None and self._response.done():
+                    if self._response.result() == "use_stale":
+                        accept_stale["on"] = True
+                        self._log("info", "Bereits eingeschaltetes Modul wird verwendet (auf Wunsch).")
+                    self._response = None
+
+                def usable(e):
+                    return accept_stale["on"] or not e["stale"]
+
+                # Hinweis: passendes Modul ist schon eingeschaltet (Normalbetrieb)
+                for e in seen.values():
+                    a = e["dev"].address
+                    if e["stale"] and not accept_stale["on"] and a not in stale_warned and \
+                            role_of(self._known_name(e), s) == role:
+                        stale_warned.add(a)
+                        self._log("warn", f"„{self._known_name(e)}“ war schon eingeschaltet – es wird erst "
+                                          f"verwendet, nachdem es aus- und wieder eingeschaltet wurde.")
+                        self._response = loop.create_future()
+                        self.ui.on_action(dict(
+                            mode="user", title="NUTZERAKTION ERFORDERLICH",
+                            text="PTT-Modul ist noch eingeschaltet – bitte AUSSCHALTEN und dann mit "
+                                 "gedrückter PTT-Taste wieder EINSCHALTEN",
+                            hint="Nur so startet das PTT-Modul im Einstellmodus und übernimmt die "
+                                 "Host-MAC. Das Programm erkennt das Aus- und Einschalten automatisch.",
+                            buttons=[("use_stale", "Ist schon mit gedrückter Taste eingeschaltet – verwenden")],
+                            step="p_power", busy=True))
+
                 # 1) Voller Name bekannt (Werbung oder Namensspeicher)
-                direct = [e for e in seen.values() if role_of(self._known_name(e), s) == role]
+                direct = [e for e in seen.values() if role_of(self._known_name(e), s) == role and usable(e)]
                 if direct:
                     await asyncio.sleep(1.0)  # weitere Kandidaten kurz sammeln
                     await stop()
-                    direct = [e for e in seen.values() if role_of(self._known_name(e), s) == role]
+                    direct = [e for e in seen.values() if role_of(self._known_name(e), s) == role and usable(e)]
                     direct.sort(key=lambda e: (e["uuid"], e["adv"].rssi or -999), reverse=True)
                     if len(direct) > 1:
                         self._log("warn", f"{len(direct)} passende Module gefunden – nehme das stärkste "
@@ -484,7 +579,7 @@ class PairingEngine:
                     continue
                 now = loop.time()
                 todo = [e for addr, e in seen.items()
-                        if self._is_candidate(e)
+                        if self._is_candidate(e) and usable(e)
                         and addr not in mismatch
                         and addr not in self.name_cache
                         and now - e["first"] >= s.boot_wait_s

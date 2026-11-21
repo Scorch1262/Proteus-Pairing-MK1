@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 APP_NAME = "Proteus-Pairing-MK1"
-APP_VERSION = "1.2.1"
+APP_VERSION = "1.3.0"
 
 
 def data_dir() -> Path:
@@ -52,6 +52,7 @@ class Settings:
     # Befehle
     cmd_host_mac: str = "BT-MAC?"
     cmd_ptt_prefix: str = "Host:"
+    ptt_confirm: str = "gespeichert"     # Antwort des PTT-Moduls ("Neue Host MAC gespeichert"); leer = nicht prüfen
     line_ending: str = "Kein Zeilenende"
     proteus_header: bool = True          # 0x01-Datenheader des Proteus-II-Profils
     # Zeiten
@@ -59,10 +60,12 @@ class Settings:
     scan_timeout_s: float = 120.0
     response_timeout_s: float = 5.0
     retries: int = 3
+    send_delay_s: float = 1.0            # nach dem Öffnen des Datenkanals vor dem Senden warten
     ptt_reply_wait_s: float = 3.0
     # Kopplung
     pair_host: bool = True
     pair_ptt: bool = False
+    ptt_require_fresh: bool = True       # PTT-Modul erst nach Aus-/Einschalten verwenden
     repair_fresh: bool = True            # Windows: vorhandene (evtl. veraltete) Kopplung vorher entfernen
     passkey: str = "123123"              # falls das Modul einen Passkey verlangt (Proteus-II-Standard)
     unpair_after: bool = False

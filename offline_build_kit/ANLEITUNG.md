@@ -148,7 +148,7 @@ Voraussetzungen auf dem Offline-Mac:
    ```
    fertige_app/
    ├── Proteus-Pairing-MK1.app                 <- direkt starten
-   └── Proteus-Pairing-MK1-v1.2.1-macOS.zip    <- zum Weitergeben
+   └── Proteus-Pairing-MK1-v1.3.0-macOS.zip    <- zum Weitergeben
    ```
    Die App gilt für den Prozessor des Build-Macs (Apple Silicon bzw. Intel).
 
